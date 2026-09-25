@@ -1,0 +1,30 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 390 360" width="390" height="360">
+  <g>
+    <rect x="22" y="18" width="6" height="13" rx="1.5" fill="#E6C36F" transform="rotate(24 25 24)"/>
+    <rect x="64" y="52" width="6" height="12" rx="1.5" fill="#9A7BFF" transform="rotate(-38 67 58)"/>
+    <circle cx="104" cy="22" r="3.5" fill="#E8503F"/>
+    <rect x="138" y="70" width="5" height="12" rx="1.5" fill="#3FBF8A" transform="rotate(52 140 76)"/>
+    <rect x="176" y="14" width="6" height="14" rx="1.5" fill="#F5EFE0" transform="rotate(-16 179 21)"/>
+    <circle cx="214" cy="58" r="3" fill="#E6C36F"/>
+    <rect x="246" y="24" width="6" height="13" rx="1.5" fill="#4F8DF5" transform="rotate(34 249 30)"/>
+    <rect x="290" y="62" width="5" height="12" rx="1.5" fill="#E8503F" transform="rotate(-48 292 68)"/>
+    <circle cx="328" cy="20" r="3.5" fill="#9A7BFF"/>
+    <rect x="360" y="48" width="6" height="13" rx="1.5" fill="#E6C36F" transform="rotate(18 363 54)"/>
+    <rect x="40" y="110" width="5" height="12" rx="1.5" fill="#F5EFE0" transform="rotate(62 42 116)"/>
+    <circle cx="88" cy="140" r="3" fill="#3FBF8A"/>
+    <rect x="122" y="124" width="6" height="13" rx="1.5" fill="#E6C36F" transform="rotate(-28 125 130)"/>
+    <rect x="196" y="112" width="5" height="11" rx="1.5" fill="#E8503F" transform="rotate(40 198 117)"/>
+    <circle cx="262" cy="130" r="3.5" fill="#E6C36F"/>
+    <rect x="306" y="118" width="6" height="13" rx="1.5" fill="#9A7BFF" transform="rotate(-60 309 124)"/>
+    <rect x="350" y="150" width="5" height="12" rx="1.5" fill="#3FBF8A" transform="rotate(26 352 156)"/>
+    <rect x="16" y="196" width="6" height="12" rx="1.5" fill="#E6C36F" transform="rotate(-20 19 202)"/>
+    <circle cx="70" cy="232" r="2.5" fill="#9A7BFF"/>
+    <rect x="152" y="206" width="5" height="11" rx="1.5" fill="#F5EFE0" transform="rotate(70 154 211)"/>
+    <circle cx="232" cy="222" r="3" fill="#E8503F"/>
+    <rect x="286" y="200" width="6" height="12" rx="1.5" fill="#E6C36F" transform="rotate(44 289 206)"/>
+    <rect x="372" y="232" width="5" height="11" rx="1.5" fill="#4F8DF5" transform="rotate(-34 374 237)"/>
+    <circle cx="112" cy="300" r="2.5" fill="#E6C36F"/>
+    <rect x="196" y="310" width="5" height="10" rx="1.5" fill="#9A7BFF" transform="rotate(20 198 315)"/>
+    <circle cx="318" cy="296" r="2.5" fill="#3FBF8A"/>
+  </g>
+</svg>

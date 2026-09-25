@@ -21,9 +21,10 @@
   --f-ui: var(--font-ui), system-ui, -apple-system, "Segoe UI", sans-serif;
 }
 * { box-sizing: border-box; }
-html { scroll-behavior: smooth; scroll-padding-top: 80px; }
+/* clip, not hidden: hidden on body doesn't stop sideways scrolling on phones and would break the sticky top bar */
+html { scroll-behavior: smooth; scroll-padding-top: 80px; overflow-x: clip; }
 body {
-  margin: 0; min-height: 100vh; overflow-x: hidden;
+  margin: 0; min-height: 100vh; overflow-x: clip;
   background-color: var(--room-deep);
   background-image: radial-gradient(120% 70% at 50% 0%, var(--room-lift) 0%, var(--room) 45%, var(--room-deep) 100%);
   background-attachment: fixed;
@@ -85,7 +86,7 @@ p { margin: 0; }
 }
 .hero-copy { display: flex; flex-direction: column; align-items: flex-start; gap: 20px; }
 .wordmark {
-  font: 700 clamp(58px, 10vw, 118px)/.95 var(--f-display); letter-spacing: .01em;
+  font: 700 clamp(44px, 13vw, 118px)/.95 var(--f-display); letter-spacing: .01em;
   background: var(--gold-text); -webkit-background-clip: text; background-clip: text; color: transparent;
   filter: drop-shadow(0 4px 0 #3B2A12) drop-shadow(0 0 34px rgba(230, 195, 111, .3));
 }
@@ -135,7 +136,9 @@ p { margin: 0; }
 .card .cs-pip { position: absolute; inset: 0; display: grid; place-items: center; padding-top: 16%; font-size: calc(var(--cw) * .48); line-height: 1; }
 .card .cf-rank { position: absolute; left: 18.4%; top: 13.7%; transform: translate(-50%, -50%); font: 700 calc(var(--cw) * .15)/1 var(--f-card); color: var(--gold-hi); }
 .card .cf-art { position: absolute; left: 11.2%; top: 8.6%; width: 77.6%; height: 50.9%; display: grid; place-items: center; }
-.card .cf-icon { width: 46%; aspect-ratio: 1; background: center / contain no-repeat; filter: drop-shadow(0 0 calc(var(--cw) * .05) rgba(230, 195, 111, .55)); }
+/* sized from the card width: a % width collapses to 0 inside the shrink-to-fit grid cell.
+   No `background` shorthand here: it would wipe the icon image set by the .i-* rules below. */
+.card .cf-icon { display: block; width: calc(var(--cw) * .36); height: calc(var(--cw) * .36); background-position: center; background-size: contain; background-repeat: no-repeat; filter: drop-shadow(0 0 calc(var(--cw) * .05) rgba(230, 195, 111, .55)); }
 .i-swap { background-image: url(/cards/icon-swap.svg); }
 .i-look { background-image: url(/cards/icon-look.svg); }
 .i-shuffle { background-image: url(/cards/icon-shuffle.svg); }
@@ -266,7 +269,7 @@ div.pk-card { cursor: default; }
 .deck-3 { --x: 48px; --r: 11deg; animation-delay: .18s !important; }
 .deck-4 { --x: 96px; --r: 22deg; animation-delay: .24s !important; }
 .soon-title {
-  font: 700 clamp(54px, 10vw, 116px)/1 var(--f-display);
+  font: 700 clamp(40px, 10.5vw, 116px)/1 var(--f-display);
   background: linear-gradient(100deg, #A87A2E 0%, #F1D58A 30%, #FFF6D6 45%, #E2B95F 60%, #A87A2E 100%);
   background-size: 220% 100%; -webkit-background-clip: text; background-clip: text; color: transparent;
   filter: drop-shadow(0 4px 0 #3B2A12) drop-shadow(0 0 40px rgba(230, 195, 111, .35));
@@ -311,13 +314,18 @@ div.pk-card { cursor: default; }
   .steps { grid-template-columns: minmax(0, 1fr); }
   .powers { gap: 30px 14px; }
   .power .card { --cw: min(150px, 40vw) !important; }
-  .pk-table { --pcw: 64px; --pgap: 10px; --pad: 16px; }
+  .pk-table { --pcw: min(64px, calc((100vw - 32px - 62px) / 4)); --pgap: 10px; --pad: 16px; }
   .hand-cards .card { --cw: min(60px, 16vw) !important; }
   .hand { padding-inline: 16px; }
   .vs { flex-basis: 100%; }
   .phone { --ps: .7; rotate: 0deg; }
   .deck { scale: .8; }
   .soon { padding: 84px 16px 96px; }
+}
+/* Small phones (320-360px) */
+@media (max-width: 360px) {
+  .fan { scale: .5; margin-top: -90px; }
+  .hero-art { height: 260px; }
 }
 @media (prefers-reduced-motion: reduce) {
   html { scroll-behavior: auto; }

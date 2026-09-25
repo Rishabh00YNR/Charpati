@@ -1,0 +1,22 @@
+{
+  "name": "charpati-trailer",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "studio": "remotion studio",
+    "render": "remotion render Trailer out/charpati-trailer.mp4",
+    "render:landscape": "remotion render TrailerLandscape out/charpati-trailer-landscape.mp4",
+    "still": "remotion still Trailer out/still.png --frame=390"
+  },
+  "dependencies": {
+    "@remotion/cli": "4.0.529",
+    "@remotion/google-fonts": "4.0.529",
+    "react": "19.3.0",
+    "react-dom": "19.3.0",
+    "remotion": "4.0.529"
+  },
+  "devDependencies": {
+    "@types/react": "^19",
+    "typescript": "^5"
+  }
+}
