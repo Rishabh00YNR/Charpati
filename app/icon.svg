@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="-60 -60 120 120" width="240" height="240">
+  <defs>
+    <linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#FCEFC0"/><stop offset=".2" stop-color="#D9AE55"/><stop offset=".42" stop-color="#8A5F20"/><stop offset=".6" stop-color="#EBCB78"/><stop offset=".8" stop-color="#A57729"/><stop offset="1" stop-color="#F4DC93"/></linearGradient>
+    <linearGradient id="s" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#F7F8FA"/><stop offset=".5" stop-color="#8E98A3"/><stop offset="1" stop-color="#E3E7EB"/></linearGradient>
+    <linearGradient id="v" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#E4D8FF"/><stop offset=".45" stop-color="#9A7BFF"/><stop offset="1" stop-color="#4A2DA3"/></linearGradient>
+    <path id="bl" d="M0 -58 L8 -12 L0 0 L-8 -12 Z"/>
+    <path id="bs" d="M0 -40 L6 -10 L0 0 L-6 -10 Z"/>
+  </defs>
+  <circle r="44" fill="none" stroke="url(#g)" stroke-width="2"/>
+  <circle r="37" fill="none" stroke="url(#g)" stroke-width=".8" opacity=".55"/>
+  <g fill="url(#s)" stroke="#2B2F35" stroke-width=".8"><use href="#bs" transform="rotate(45)"/><use href="#bs" transform="rotate(135)"/><use href="#bs" transform="rotate(225)"/><use href="#bs" transform="rotate(315)"/></g>
+  <g fill="url(#g)" stroke="#2A1E0A" stroke-width=".8"><use href="#bl"/><use href="#bl" transform="rotate(90)"/><use href="#bl" transform="rotate(180)"/><use href="#bl" transform="rotate(270)"/></g>
+  <path d="M0 -54 V-6 M54 0 H6 M0 54 V6 M-54 0 H-6" stroke="#FFF3CF" stroke-width=".7" opacity=".55"/>
+  <path d="M0 -17 L11 0 L0 17 L-11 0 Z" fill="url(#v)" stroke="#2A1E0A" stroke-width="1"/>
+  <path d="M0 -17 L11 0 L0 0 Z" fill="#FFFFFF" opacity=".28"/>
+</svg>
