@@ -22,6 +22,23 @@ npm start       # serve the build on http://localhost:3100
 
 To put it online, import this repo in Vercel. No settings or environment variables are needed.
 
-## Game
+## Online rooms (`/play`)
 
-`game/index.html` is the playable game: one self-contained HTML file, pass-the-phone for 3 to 5 players for now. It isn't part of the website build; open it directly in a browser.
+Friends each play on their own phone: create a room, share the code or link, and play at the same table.
+
+- `shared/engine.ts`: the rules, run only on the room server. It holds the deck and every hand, checks every move, runs the turn timer (the host sets 15–120 s), and hands a seat to a bot after 3 missed turns. `viewFor()` builds what one player may see; hidden cards never leave the server.
+- `server/`: the room server, one Cloudflare Durable Object per room code (PartyServer). Live at `charpati-rooms.charpati-rooms.workers.dev`.
+- `app/play/`, `components/play/`, `lib/rooms.ts`: the create/join page and the room screen.
+
+```bash
+node shared/engine.check.mjs                    # stress-test the rules (hundreds of random games)
+cd server && npm install && npm run dev         # local room server on 127.0.0.1:1999
+node server/test/online.check.mjs               # full game over the network against the local server
+cd server && npm run deploy                     # deploy the room server (needs `npx wrangler login` once)
+```
+
+The website talks to the live room server in production and to the local one during `npm run dev`; `NEXT_PUBLIC_ROOMS_HOST` overrides both.
+
+## Game (pass-the-phone)
+
+`game/index.html` is the original one-phone version: one self-contained HTML file. It isn't part of the website build; open it directly in a browser.

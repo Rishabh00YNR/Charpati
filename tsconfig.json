@@ -37,6 +37,7 @@
   ],
   "exclude": [
     "node_modules",
-    "trailer"
+    "trailer",
+    "server"
   ]
 }

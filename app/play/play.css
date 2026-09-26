@@ -1,0 +1,130 @@
+/* Online rooms. Everything sits on one 390x844 phone-shaped stage, scaled to fit the screen,
+   with the same layout as the pass-and-play game: you at the bottom, friends around the rail. */
+.pl-app { position: fixed; inset: 0; top: env(safe-area-inset-top, 0px); bottom: env(safe-area-inset-bottom, 0px); display: grid; place-items: center; overflow: hidden; }
+.pl-stage { position: relative; width: 390px; height: 844px; flex: none; transform: scale(var(--s, 1)); }
+.pl-stage * { box-sizing: border-box; }
+.pl-abs { position: absolute; }
+
+.pl-top { position: absolute; left: 16px; right: 16px; top: 14px; height: 44px; display: flex; align-items: center; justify-content: space-between; gap: 10px; z-index: 5; }
+.pl-top .brand { font-size: 20px; }
+.pl-code { display: inline-flex; align-items: center; gap: 8px; height: 36px; padding: 0 12px; border-radius: 999px; border: 1px solid rgba(230, 195, 111, .45); background: rgba(14, 9, 24, .75); font: 800 13px/1 var(--f-ui); letter-spacing: .14em; color: var(--gold-hi); cursor: pointer; }
+.pl-code small { font-size: 10px; letter-spacing: .1em; color: var(--muted); font-weight: 700; }
+
+.pl-felt {
+  position: absolute; left: 28px; top: 78px; width: 334px; height: 596px; border-radius: 167px; background-color: var(--felt);
+  background-image: radial-gradient(ellipse at 50% 45%, rgba(255, 255, 255, .10) 0%, rgba(0, 0, 0, .16) 55%, rgba(0, 0, 0, .5) 100%);
+  box-shadow: 0 0 0 5px #3B2A12, 0 0 0 10px var(--brass), 0 0 0 12px #5E4318, 0 30px 70px rgba(0, 0, 0, .75), inset 0 0 60px rgba(0, 0, 0, .55);
+}
+.pl-felt::before { content: ""; position: absolute; inset: 16px; border-radius: 151px; border: 1px solid rgba(230, 195, 111, .28); }
+
+/* Players */
+.pl-av {
+  position: absolute; width: 46px; height: 46px; margin: -23px 0 0 -23px; padding: 0; border: 0; border-radius: 50%;
+  display: grid; place-items: center; background: #1E1530; color: var(--gold-hi); font: 700 18px/1 var(--f-card);
+  box-shadow: 0 0 0 3px var(--gem), 0 0 0 4.5px var(--brass), 0 6px 14px rgba(0, 0, 0, .6);
+}
+button.pl-av { cursor: pointer; }
+.pl-av.away { opacity: .45; }
+.pl-av.pick { box-shadow: 0 0 0 3px var(--gem), 0 0 0 4.5px var(--brass), 0 0 0 9px rgba(230, 195, 111, .3), 0 0 22px 6px rgba(230, 195, 111, .35); }
+.pl-av.picked, .pl-av.win { box-shadow: 0 0 0 3px var(--gem), 0 0 0 6px var(--gold), 0 0 26px 8px rgba(230, 195, 111, .55); }
+/* the turn timer: a gold ring that empties as time runs out */
+.pl-ring { position: absolute; width: 60px; height: 60px; margin: -30px 0 0 -30px; border-radius: 50%; pointer-events: none;
+  background: conic-gradient(var(--gold) calc(var(--left, 1) * 360deg), rgba(230, 195, 111, .15) 0);
+  -webkit-mask: radial-gradient(circle, transparent 26px, #000 27px); mask: radial-gradient(circle, transparent 26px, #000 27px); }
+.pl-ring.low { background: conic-gradient(#E8503F calc(var(--left, 1) * 360deg), rgba(232, 80, 63, .15) 0); }
+.pl-crown { position: absolute; left: 50%; top: -24px; width: 36px; height: 28px; margin-left: -18px; rotate: -12deg; background: url(/cards/crown.svg) center / contain no-repeat; }
+.pl-pill { position: absolute; transform: translateX(-50%); padding: 1px 8px; border-radius: 999px; background: rgba(14, 9, 24, .84); font: 700 12px/1.35 var(--f-ui); white-space: nowrap; color: var(--ivory); }
+.pl-tag { position: absolute; transform: translateX(-50%); padding: 2px 7px; border-radius: 999px; border: 1px solid rgba(230, 195, 111, .6); background: rgba(14, 9, 24, .84); font: 800 9px/1.2 var(--f-ui); letter-spacing: .12em; color: var(--gold); white-space: nowrap; }
+.pl-tag.bot { border-color: rgba(195, 155, 255, .7); color: #C39BFF; }
+.pl-tag.away { border-color: rgba(183, 170, 203, .5); color: var(--muted); }
+.pl-score { position: absolute; width: 26px; height: 26px; border-radius: 13px; display: grid; place-items: center; background: #1E1530; color: var(--gold-hi); font: 700 12px/1 var(--f-card); box-shadow: 0 0 0 1.5px var(--brass); }
+.pl-score.best { background: var(--gold); color: var(--ink); }
+
+/* Cards on the stage (the .card look comes from the website's styles) */
+/* .pl-c is the spot a card sits in; it carries the tap target and highlights, the card fills it */
+.pl-c { position: absolute; display: block; padding: 0; border: 0; background: none; transition: top .2s ease, opacity .25s; }
+.pl-c > .card { position: absolute; left: 0; top: 0; }
+button.pl-c { cursor: pointer; }
+button.pl-c::before { content: ""; position: absolute; inset: -5px; }
+.pl-c.can { outline: 2px dashed rgba(230, 195, 111, .85); outline-offset: 3px; }
+.pl-c.sel { outline: 3px solid var(--gold); outline-offset: 2px; box-shadow: 0 0 22px 6px rgba(230, 195, 111, .6); }
+.pl-c.glow { box-shadow: 0 0 0 2px var(--gold), 0 0 24px 7px rgba(230, 195, 111, .5); animation: pl-pulse 1.6s ease-in-out infinite; }
+.pl-c.flash::after { content: ""; position: absolute; inset: 0; border-radius: inherit; animation: pl-glow 1s ease-out; }
+.pl-c.riffle { animation: pl-riffle .8s ease-in-out; }
+.pl-c:focus-visible { outline: 3px solid var(--ivory); outline-offset: 3px; }
+.pl-extra { position: absolute; left: 20px; right: 20px; display: flex; flex-direction: column; align-items: center; gap: 14px; }
+.pl-pos { position: absolute; top: 3px; right: 3px; min-width: 16px; padding: 0 3px; border-radius: 4px; background: rgba(20, 12, 32, .88); font: 700 10px/16px var(--f-ui); text-align: center; color: var(--gold-hi); pointer-events: none; }
+.pl-pos.xs { top: 1px; right: 1px; min-width: 11px; padding: 0 2px; font-size: 8px; line-height: 11px; }
+.pl-empty { position: absolute; border-radius: 4px; border: 1.5px dashed rgba(245, 239, 224, .25); }
+.pl-label { position: absolute; transform: translateX(-50%); font: 800 10px/1.2 var(--f-ui); letter-spacing: .12em; white-space: nowrap; color: var(--muted); }
+.pl-label.hi { color: var(--gold-hi); }
+
+/* Middle of the table */
+.pl-ticker { position: absolute; left: 50px; right: 50px; top: 232px; display: flex; align-items: center; justify-content: center; gap: 8px; padding: 7px 12px; border-radius: 16px; background: rgba(14, 9, 24, .7); border: 1px solid rgba(230, 195, 111, .25); font: 600 12px/1.3 var(--f-ui); text-align: center; color: var(--ivory); }
+.pl-ticker i { flex: none; width: 8px; height: 8px; border-radius: 4px; background: var(--gem); }
+.pl-rays { position: absolute; left: 15px; top: 154px; width: 360px; height: 360px; border-radius: 50%; pointer-events: none;
+  background: repeating-conic-gradient(from 0deg, rgba(241, 220, 158, .24) 0deg 5deg, rgba(241, 220, 158, 0) 5deg 15deg);
+  -webkit-mask-image: radial-gradient(circle, #000 18%, transparent 68%); mask-image: radial-gradient(circle, #000 18%, transparent 68%); animation: pl-spin 30s linear infinite; }
+.pl-stamp { position: absolute; left: 0; right: 0; top: 176px; text-align: center; pointer-events: none; font: 700 46px/1 var(--f-display); color: var(--gold-hi); rotate: -7deg; text-shadow: 0 2px 0 #8A5F20, 0 4px 0 #3B2A12, 0 0 28px rgba(230, 195, 111, .75); animation: pl-stamp 2.2s ease-out .15s both; }
+.pl-center { position: absolute; left: 60px; right: 60px; display: flex; flex-direction: column; align-items: center; gap: 8px; text-align: center; }
+.pl-center .big { font: 700 44px/1 var(--f-display); letter-spacing: .08em; color: var(--gold-hi); text-shadow: 0 2px 0 #8A5F20, 0 0 26px rgba(230, 195, 111, .35); }
+.pl-center .small { font: 600 13px/1.4 var(--f-ui); color: var(--muted); }
+.pl-center .count { font: 700 56px/1 var(--f-card); color: var(--gold-hi); }
+.pl-peek { position: absolute; left: 36px; right: 36px; top: 232px; height: 214px; border-radius: 18px; background: rgba(14, 9, 24, .92); border: 1px solid rgba(230, 195, 111, .4); box-shadow: 0 20px 50px rgba(0, 0, 0, .6); }
+.pl-peek h3 { position: absolute; left: 0; right: 0; top: 16px; margin: 0; text-align: center; font: 700 15px/1.2 var(--f-card); color: var(--gold-hi); }
+.pl-peek p { position: absolute; left: 0; right: 0; top: 152px; margin: 0; text-align: center; font-size: 13px; color: var(--muted); }
+.pl-banner { position: absolute; left: 30px; right: 30px; top: 356px; display: flex; flex-direction: column; align-items: center; gap: 8px; text-align: center; }
+.pl-banner b { font: 700 34px/1.08 var(--f-display); color: var(--gold-hi); text-shadow: 0 2px 0 #8A5F20, 0 0 30px rgba(230, 195, 111, .6); text-wrap: balance; }
+.pl-banner span { font: 600 14px/1.3 var(--f-ui); color: var(--ivory); }
+.pl-banner small { font: 600 12px/1.4 var(--f-ui); color: var(--muted); }
+
+/* Your seat and what to do now */
+.pl-plate { position: absolute; left: 70px; top: 648px; width: 250px; height: 48px; display: flex; align-items: center; gap: 10px; padding: 0 8px 0 6px; border-radius: 24px; background: #160E24; box-shadow: 0 0 0 1.5px var(--brass), 0 10px 24px rgba(0, 0, 0, .6); }
+.pl-plate .pl-av { position: relative; flex: none; width: 36px; height: 36px; margin: 0; font-size: 15px; box-shadow: 0 0 0 2.5px var(--gem), 0 0 0 5px rgba(230, 195, 111, .35); }
+.pl-plate .nm { flex: 1; min-width: 0; font: 700 15px/1.2 var(--f-ui); color: var(--ivory); overflow-wrap: anywhere; }
+.pl-chip { flex: none; padding: 4px 8px; border-radius: 999px; background: var(--gold); color: var(--ink); font: 800 9.5px/1 var(--f-ui); letter-spacing: .1em; font-variant-numeric: tabular-nums; }
+.pl-chip.soft { background: transparent; color: var(--muted); box-shadow: inset 0 0 0 1px rgba(183, 170, 203, .5); }
+.pl-chip.low { background: #E8503F; color: #fff; }
+.pl-bar { position: absolute; left: 20px; right: 20px; top: 704px; display: flex; flex-direction: column; align-items: center; gap: 5px; text-align: center; }
+.pl-bar .ptag { padding: 3px 10px; border-radius: 999px; border: 1px solid rgba(230, 195, 111, .6); font: 800 10px/1.3 var(--f-ui); letter-spacing: .12em; color: var(--gold); }
+.pl-bar p { margin: 0; font: 500 14px/1.4 var(--f-ui); color: var(--ivory); max-width: 44ch; }
+.pl-bar p.soft { color: var(--muted); }
+.pl-bar b { color: var(--gold-hi); }
+.pl-btns { position: absolute; left: 20px; right: 20px; top: 770px; display: flex; gap: 10px; }
+.pl-btns .btn { flex: 1 1 0; min-width: 0; height: 56px; padding: 0 12px; font-size: 16px; white-space: normal; line-height: 1.15; }
+.pl-stepper { display: flex; align-items: center; gap: 10px; font: 700 14px/1 var(--f-ui); color: var(--ivory); }
+.pl-stepper button { width: 36px; height: 36px; border-radius: 50%; border: 1px solid rgba(230, 195, 111, .5); background: rgba(14, 9, 24, .8); color: var(--gold-hi); font: 800 18px/1 var(--f-ui); cursor: pointer; }
+.pl-stepper button:disabled { opacity: .35; cursor: not-allowed; }
+.pl-gems { display: flex; gap: 10px; }
+.pl-gem { width: 30px; height: 30px; padding: 0; border: 0; border-radius: 50%; background: var(--gem); cursor: pointer; box-shadow: inset 0 -4px 8px rgba(0, 0, 0, .3); }
+.pl-gem.on { box-shadow: 0 0 0 2px #150E22, 0 0 0 4px var(--gold); }
+.pl-gem:disabled { opacity: .25; cursor: not-allowed; }
+
+/* Messages, sheets */
+.pl-toast { position: absolute; left: 24px; right: 24px; top: 66px; z-index: 50; padding: 10px 14px; border-radius: 12px; background: #2A1236; border: 1px solid rgba(232, 80, 63, .6); color: var(--ivory); font: 600 13px/1.4 var(--f-ui); text-align: center; box-shadow: 0 10px 30px rgba(0, 0, 0, .5); }
+.pl-status { position: absolute; left: 50%; top: 66px; transform: translateX(-50%); z-index: 40; padding: 6px 12px; border-radius: 999px; background: rgba(14, 9, 24, .9); border: 1px solid rgba(230, 195, 111, .35); color: var(--gold-hi); font: 700 12px/1 var(--f-ui); white-space: nowrap; }
+.pl-sheet-bg { position: absolute; inset: 0; z-index: 45; background: rgba(6, 3, 12, .72); }
+.pl-sheet { position: absolute; left: 0; right: 0; bottom: 0; z-index: 46; display: flex; flex-direction: column; gap: 14px; padding: 22px 20px 26px; border-radius: 20px 20px 0 0; background: #1A1129; border-top: 1px solid rgba(230, 195, 111, .35); color: var(--ivory); }
+.pl-sheet h2 { margin: 0; font: 700 22px/1.2 var(--f-card); color: var(--gold-hi); }
+.pl-sheet p { margin: 0; color: var(--muted); font-size: 14px; }
+.pl-sheet .btn { width: 100%; }
+.pl-field { display: flex; flex-direction: column; gap: 8px; font: 700 12px/1.2 var(--f-ui); letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
+.pl-field input { appearance: none; width: 100%; border: 1px solid rgba(245, 239, 224, .25); background: rgba(8, 4, 16, .6); color: var(--ivory); border-radius: 12px; padding: 12px 14px; font: 600 17px/1.2 var(--f-ui); letter-spacing: normal; text-transform: none; }
+.pl-field input:focus { outline: 2px solid var(--gold); outline-offset: 1px; border-color: transparent; }
+
+@keyframes pl-pulse { 0%, 100% { box-shadow: 0 0 0 2px var(--gold), 0 0 16px 4px rgba(230, 195, 111, .4); } 50% { box-shadow: 0 0 0 2px var(--gold), 0 0 30px 10px rgba(230, 195, 111, .65); } }
+@keyframes pl-glow { from { box-shadow: 0 0 0 0 rgba(230, 195, 111, .95); } to { box-shadow: 0 0 0 16px rgba(230, 195, 111, 0); } }
+@keyframes pl-riffle { 0%, 100% { translate: 0 0; } 35%, 60% { translate: var(--dx) var(--dy); rotate: var(--rt); } }
+@keyframes pl-spin { to { rotate: 360deg; } }
+@keyframes pl-stamp { 0% { opacity: 0; scale: 2.4; } 16% { opacity: 1; scale: 1; } 78% { opacity: 1; } 100% { opacity: 0; scale: 1; } }
+@media (prefers-reduced-motion: reduce) { .pl-stage *, .pl-stage *::after { animation: none !important; transition: none !important; } }
+
+/* The create / join screen (a normal page, not the stage) */
+.pl-home { max-width: 460px; margin: 0 auto; padding: 48px 20px 60px; display: flex; flex-direction: column; gap: 22px; }
+.pl-home h1 { font: 700 clamp(40px, 12vw, 56px)/1 var(--f-display); background: var(--gold-text); -webkit-background-clip: text; background-clip: text; color: transparent; text-align: center; }
+.pl-home .lead { text-align: center; color: var(--muted); }
+.pl-panel { display: flex; flex-direction: column; gap: 14px; padding: 20px; border-radius: 20px; border: 1px solid var(--line); background: rgba(14, 9, 24, .6); }
+.pl-panel h2 { margin: 0; font: 700 18px/1.2 var(--f-card); color: var(--gold-hi); }
+.pl-panel .btn { width: 100%; }
+.pl-or { text-align: center; font: 800 11px/1 var(--f-ui); letter-spacing: .2em; color: var(--muted); }
+.pl-err { margin: 0; color: #F08A7E; font-size: 14px; text-align: center; }
