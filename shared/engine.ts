@@ -18,6 +18,12 @@ export const TIMER = { min: 15, max: 120, step: 5, default: 30 }; // seconds per
 export const MEMO_SEC = 45; // time everyone gets to memorise their cards
 export const MISSES_FOR_BOT = 3; // missed turns in a row before a bot takes the seat
 export const BOT_DELAY_MS = 1400; // bots pause between actions so people can follow
+// When nobody is really playing (every seat is disconnected or run by a bot) the game pauses, and ends
+// after this long unless someone comes back. Short enough to stop bots playing an empty table,
+// long enough that a phone locking for a moment doesn't end the game.
+export const IDLE_END_MS = 2 * 60 * 1000;
+// A lobby or results screen that nobody touches for this long closes, even with tabs left open.
+export const ROOM_IDLE_CLOSE_MS = 30 * 60 * 1000;
 
 export const POWERS: Record<PowerRank, { name: string; text: string }> = {
   '7': { name: 'Swap', text: "Swap one of your cards with one of another player's cards. Nobody looks." },
@@ -56,7 +62,7 @@ export type Fx =
   | { k: 'end' };
 
 export type Game = {
-  phase: 'lobby' | 'memorize' | 'play' | 'end';
+  phase: 'lobby' | 'memorize' | 'play' | 'end' | 'closed';
   seats: Seat[];
   deck: Card[];
   discard: Card[];
@@ -68,6 +74,9 @@ export type Game = {
   timerSec: number;
   deadline: number | null; // ms timestamp when the current turn (or memorising) runs out
   botAt: number | null; // when the bot playing the current seat acts next
+  idleSince: number | null; // set while nobody is really playing: the game is paused
+  endReason: 'deck' | 'abandoned' | null; // why the last game ended
+  lastActivity: number; // when someone last did something (for closing forgotten lobbies and results screens)
   round: number;
   log: LogEntry[];
   fx: Fx[];
@@ -106,8 +115,64 @@ const randomId = (rng: Rng, n = 24) => Array.from({ length: n }, () => 'abcdefgh
 export function newGame(): Game {
   return {
     phase: 'lobby', seats: [], deck: [], discard: [], starter: 0, cur: 0, step: 'draw', drawn: null, peek: null,
-    timerSec: TIMER.default, deadline: null, botAt: null, round: 0, log: [], fx: [],
+    timerSec: TIMER.default, deadline: null, botAt: null, idleSince: null, endReason: null, lastActivity: 0, round: 0, log: [], fx: [],
   };
+}
+
+const waiting = (g: Game) => (g.phase === 'lobby' || g.phase === 'end') && g.seats.length > 0;
+
+function closeRoom(g: Game) {
+  g.phase = 'closed';
+  g.deadline = null;
+  g.botAt = null;
+  g.idleSince = null;
+  log(g, 'Nobody played for 30 minutes, so this room closed.');
+}
+
+// ---- Pausing when nobody is playing ---------------------------------------------------------
+const inGame = (g: Game) => g.phase === 'memorize' || g.phase === 'play';
+const nobodyPlaying = (g: Game) => g.seats.every(s => s.bot || !s.connected);
+
+// Call after anything that changes who is connected or who is a bot.
+function updateIdle(g: Game, now: number) {
+  if (!inGame(g)) { g.idleSince = null; return; }
+  if (nobodyPlaying(g)) {
+    if (g.idleSince === null) {
+      g.idleSince = now;
+      log(g, 'Nobody is playing right now, so the game is paused.');
+    }
+  } else if (g.idleSince !== null) {
+    // Someone is back: carry on with fresh time on the clock.
+    g.idleSince = null;
+    log(g, 'Someone is back. The game carries on.');
+    if (g.phase === 'play') {
+      g.deadline = now + g.timerSec * 1000;
+      g.botAt = g.seats[g.cur].bot ? now + BOT_DELAY_MS : null;
+    } else {
+      g.deadline = now + MEMO_SEC * 1000;
+    }
+  }
+}
+
+// The room server tells the engine when a phone connects or goes away.
+export function setConnected(g: Game, seat: number, connected: boolean, now: number) {
+  const s = g.seats[seat];
+  if (!s || s.connected === connected) return;
+  s.connected = connected;
+  updateIdle(g, now);
+}
+
+function endAbandoned(g: Game, now: number) {
+  g.phase = 'end';
+  g.endReason = 'abandoned';
+  g.lastActivity = now;
+  g.deadline = null;
+  g.botAt = null;
+  g.idleSince = null;
+  g.drawn = null;
+  g.peek = null;
+  g.fx.push({ k: 'end' });
+  log(g, 'Everyone left or stopped playing, so the game ended.');
 }
 
 // The host is the first player still connected; they start the game, set the timer and call rematches.
@@ -118,8 +183,10 @@ function log(g: Game, t: string, seat: number | null = null) {
   if (g.log.length > 60) g.log.shift();
 }
 
-export function join(g: Game, rawName: string, gem: Gem | undefined, rng: Rng): { seat: number; token: string } | { error: string } {
+export function join(g: Game, rawName: string, gem: Gem | undefined, rng: Rng, now: number): { seat: number; token: string } | { error: string } {
+  if (g.phase === 'closed') return { error: 'This room has closed. Create a new room.' };
   if (g.phase !== 'lobby') return { error: 'This game has already started.' };
+  g.lastActivity = now;
   if (g.seats.length >= MAX_SEATS) return { error: 'This table is full (5 players).' };
   let name = String(rawName ?? '').replace(/\s+/g, ' ').trim().slice(0, 12) || `Player ${g.seats.length + 1}`;
   const taken = new Set(g.seats.map(s => s.name.toLowerCase()));
@@ -150,6 +217,8 @@ function deal(g: Game, now: number, rng: Rng) {
   g.drawn = null;
   g.peek = null;
   g.botAt = null;
+  g.idleSince = null;
+  g.endReason = null;
   g.deadline = now + MEMO_SEC * 1000;
   g.fx.push({ k: 'deal' });
   log(g, `Round ${g.round}: everyone has four cards. Remember them.`);
@@ -177,6 +246,8 @@ function endTurn(g: Game, now: number) {
   g.peek = null;
   if (!g.deck.length) {
     g.phase = 'end';
+    g.endReason = 'deck';
+    g.lastActivity = now;
     g.deadline = null;
     g.botAt = null;
     g.fx.push({ k: 'end' });
@@ -192,6 +263,16 @@ function endTurn(g: Game, now: number) {
 // ---- The moves a player can send ------------------------------------------------------------
 // Returns an error message for the player, or null when the move was applied.
 export function apply(g: Game, seat: number, m: Move, now: number, rng: Rng): string | null {
+  if (g.phase === 'closed') return 'This room has closed. Create a new room.';
+  const err = applyMove(g, seat, m, now, rng);
+  if (err === null) {
+    g.lastActivity = now;
+    updateIdle(g, now);
+  }
+  return err;
+}
+
+function applyMove(g: Game, seat: number, m: Move, now: number, rng: Rng): string | null {
   const me = g.seats[seat];
   if (!me) return 'You are not seated at this table.';
   const host = seat === hostIndex(g);
@@ -343,6 +424,18 @@ function turnMove(g: Game, m: Move, now: number, rng: Rng): string | null {
 // ---- Time: turn timers and bots ------------------------------------------------------------
 // Call whenever the clock passes nextWake(g). Returns true if anything changed.
 export function tick(g: Game, now: number, rng: Rng): boolean {
+  // Paused because nobody is playing: nothing moves, and the game ends if nobody comes back.
+  if (inGame(g) && g.idleSince !== null) {
+    if (now < g.idleSince + IDLE_END_MS) return false;
+    endAbandoned(g, now);
+    return true;
+  }
+  // A lobby or results screen that nobody has touched for 30 minutes closes.
+  if (waiting(g)) {
+    if (now < g.lastActivity + ROOM_IDLE_CLOSE_MS) return false;
+    closeRoom(g);
+    return true;
+  }
   if (g.phase === 'memorize' && g.deadline !== null && now >= g.deadline) {
     for (const s of g.seats) s.ready = true;
     log(g, 'Time is up for memorising.');
@@ -372,10 +465,13 @@ export function tick(g: Game, now: number, rng: Rng): boolean {
     log(g, `${me.name} missed ${MISSES_FOR_BOT} turns in a row, so a bot is playing for them.`, g.cur);
   }
   endTurn(g, now);
+  updateIdle(g, now); // that may have been the last person still playing
   return true;
 }
 
 export function nextWake(g: Game): number | null {
+  if (inGame(g) && g.idleSince !== null) return g.idleSince + IDLE_END_MS;
+  if (waiting(g)) return g.lastActivity + ROOM_IDLE_CLOSE_MS;
   const times = [g.deadline, g.botAt].filter((x): x is number => x !== null);
   return times.length ? Math.min(...times) : null;
 }
@@ -433,7 +529,9 @@ export type View = {
   timerSec: number;
   deadline: number | null;
   round: number;
-  winners: number[] | null;
+  winners: number[] | null; // null while playing, and when a game ended because everyone left
+  endReason: Game['endReason'];
+  pausedUntil: number | null; // set while nobody is playing: the game ends at this time unless someone returns
   log: LogEntry[];
   fx: Fx[];
 };
@@ -460,7 +558,9 @@ export function viewFor(g: Game, you: number | null): View {
     drawn: g.drawn && you === g.cur && g.phase === 'play' ? { ...g.drawn } : null,
     peek: g.peek ? { ...g.peek } : null,
     timerSec: g.timerSec, deadline: g.deadline, round: g.round,
-    winners: end ? g.seats.map((s, i) => (total(s.cards) === best ? i : -1)).filter(i => i >= 0) : null,
+    winners: end && g.endReason !== 'abandoned' ? g.seats.map((s, i) => (total(s.cards) === best ? i : -1)).filter(i => i >= 0) : null,
+    endReason: g.endReason,
+    pausedUntil: inGame(g) && g.idleSince !== null ? g.idleSince + IDLE_END_MS : null,
     log: g.log.slice(-20),
     fx: g.fx.slice(),
   };

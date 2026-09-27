@@ -161,6 +161,13 @@ export default function Table({ code, view, send, now, fx, onShare, onLeave }: T
         <span className="small">{me && !me.ready ? 'Memorise your four cards' : 'Waiting for everyone to memorise'}</span>
       </div>
     );
+  } else if (phase === 'end' && view.endReason === 'abandoned') {
+    center = (
+      <div className="pl-banner" role="status">
+        <b>Game ended</b>
+        <span>Everyone left or stopped playing, so there’s no winner this time.</span>
+      </div>
+    );
   } else if (phase === 'end') {
     const rows = seats.map(s => ({ name: s.name, sum: s.total ?? 0 }));
     const best = Math.min(...rows.map(r => r.sum));
@@ -272,6 +279,12 @@ export default function Table({ code, view, send, now, fx, onShare, onLeave }: T
       soft = true;
       btns = <>{B('Leave table', onLeave, { ghost: true })}{B('Share invite', onShare)}</>;
     }
+  } else if (view.pausedUntil) {
+    // Only people who aren't really playing (a bot has their seat) can be here while it's paused.
+    const left = Math.max(0, Math.ceil((view.pausedUntil - now) / 1000));
+    msg = `Paused: nobody is playing. The game ends in ${Math.floor(left / 60)}:${String(left % 60).padStart(2, '0')} unless someone comes back.`;
+    soft = true;
+    if (me?.bot) btns = B('Take my seat back', () => send({ t: 'takeBack' }));
   } else if (phase === 'memorize') {
     if (!me?.ready) { msg = 'Tap two cards to swap their places, then remember them.'; btns = B('I’ve got them, hide my cards', () => send({ t: 'ready' })); }
     else { msg = 'Waiting for everyone to memorise…'; soft = true; }
@@ -308,10 +321,24 @@ export default function Table({ code, view, send, now, fx, onShare, onLeave }: T
     btns = peek ? B('Done, hide them', () => send({ t: 'done' })) : B(target === null ? 'Look' : `Look at ${nameOf(target)}'s cards`, () => target !== null && send({ t: 'peekJ', seat: target }), { off: target === null });
   }
 
+  if (phase === 'closed') {
+    return (
+      <>
+        <div className="pl-felt" />
+        <div className="pl-center" style={{ top: 320 }} role="status">
+          <span className="big" style={{ fontSize: 32, letterSpacing: '.02em' }}>Room closed</span>
+          <span className="small">Nobody played for 30 minutes, so this room closed.</span>
+        </div>
+        <div className="pl-btns"><a className="btn" href="/play">Create a new room</a></div>
+      </>
+    );
+  }
+
   return (
     <>
       <div className="pl-felt" />
       {seatEls}
+      {view.pausedUntil && <div className="pl-status" role="status">PAUSED</div>}
       {center}
       {handEls}
       {phase === 'lobby' && extra && <div className="pl-extra" style={{ top: 470 }}>{extra}</div>}

@@ -72,10 +72,10 @@ export default function Room({ code }: { code: string }) {
 
   // A ticking clock for the countdowns, only while a timer is running.
   useEffect(() => {
-    if (!view?.deadline) return;
+    if (!view?.deadline && !view?.pausedUntil) return;
     const t = setInterval(() => setClock(Date.now()), 250);
     return () => clearInterval(t);
-  }, [view?.deadline]);
+  }, [view?.deadline, view?.pausedUntil]);
 
   // If the colour this phone remembers is taken, offer the first free one.
   const taken = new Set(view?.seats.map(s => s.gem) ?? []);

@@ -14,7 +14,7 @@ export const newCode = () => Array.from(crypto.getRandomValues(new Uint32Array(4
 export const cleanCode = (s: string) => s.toUpperCase().split('').filter(c => CODE_CHARS.includes(c)).join('').slice(0, 6);
 export const isCode = (s: string) => /^[A-HJ-NP-Z2-9]{4,6}$/.test(s);
 
-export type RoomInfo = { phase: 'lobby' | 'memorize' | 'play' | 'end'; players: number; open: boolean };
+export type RoomInfo = { phase: 'lobby' | 'memorize' | 'play' | 'end' | 'closed'; players: number; open: boolean };
 export async function roomInfo(code: string): Promise<RoomInfo | null> {
   try {
     const res = await fetch(`${roomsHttp}/parties/room/${code}`, { cache: 'no-store' });

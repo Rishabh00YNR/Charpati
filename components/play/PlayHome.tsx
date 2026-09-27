@@ -36,6 +36,7 @@ export default function PlayHome() {
     setBusy(false);
     if (!info) return setErr('Can’t reach the game server right now. Check your connection and try again.');
     if (info.phase === 'lobby' && info.players === 0) return setErr(`There’s no room called ${c}. Check the code with your friend.`);
+    if (info.phase === 'closed') return setErr(`Room ${c} has closed. Create a new room instead.`);
     remember();
     router.push(`/play/${c}`);
   }

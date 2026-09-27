@@ -1,5 +1,5 @@
 import { Server, routePartykitRequest, type Connection, type ConnectionContext, type WSMessage } from 'partyserver';
-import { apply, join, newGame, nextWake, tick, viewFor, type Game, type Move } from '../../shared/engine';
+import { apply, join, newGame, nextWake, setConnected, tick, viewFor, type Game, type Move } from '../../shared/engine';
 
 // A phone's connection remembers its seat pass (token); null means it's only watching.
 type ConnState = { token: string | null };
@@ -19,7 +19,9 @@ export class Room extends Server<Env> {
   game: Game = newGame();
 
   async onStart() {
-    this.game = (await this.ctx.storage.get<Game>('game')) ?? newGame();
+    const saved = await this.ctx.storage.get<Game>('game');
+    // Rooms saved by an older version lack newer fields; fill them in (activity counts from now).
+    this.game = saved ? { ...newGame(), ...saved, lastActivity: (saved as Partial<Game>).lastActivity ?? Date.now() } : newGame();
   }
 
   // Lets the join screen ask whether a room exists and has space.
@@ -32,7 +34,7 @@ export class Room extends Server<Env> {
     const token = new URL(ctx.request.url).searchParams.get('token');
     const seat = token ? this.game.seats.findIndex(s => s.token === token) : -1;
     conn.setState({ token: seat >= 0 ? token : null });
-    if (seat >= 0) this.game.seats[seat].connected = true;
+    if (seat >= 0) setConnected(this.game, seat, true, Date.now());
     this.commit();
   }
 
@@ -42,7 +44,7 @@ export class Room extends Server<Env> {
     if (!move || typeof move.t !== 'string') return;
     if (move.t === 'join') {
       if (this.seatOf(conn) !== null) return;
-      const r = join(this.game, move.name, move.gem, rng);
+      const r = join(this.game, move.name, move.gem, rng, Date.now());
       if ('error' in r) return this.send(conn, { t: 'error', msg: r.error });
       conn.setState({ token: r.token });
       this.send(conn, { t: 'seat', token: r.token });
@@ -61,7 +63,7 @@ export class Room extends Server<Env> {
     // Another tab of the same player may still be open.
     const stillHere = [...this.getConnections<ConnState>()].some(c => c !== conn && c.state?.token && c.state.token === conn.state?.token);
     if (seat !== null && !stillHere) {
-      this.game.seats[seat].connected = false;
+      setConnected(this.game, seat, false, Date.now());
       this.commit();
     }
   }
