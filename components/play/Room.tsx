@@ -30,11 +30,11 @@ export default function Room({ code }: { code: string }) {
     toastTimer.current = setTimeout(() => setToast(''), 3500);
   }, []);
 
-  // Fit the 390 x 844 stage to the screen.
+  // Fit the 390 x 772 stage to the screen (as big as fits, capped so it doesn't get huge on a laptop).
   useEffect(() => {
     const fit = () => {
       const el = document.querySelector('.pl-app');
-      if (el) setScale(Math.min(el.clientWidth / 390, el.clientHeight / 844) || 1);
+      if (el) setScale(Math.min(el.clientWidth / 390, el.clientHeight / 772, 1.6) || 1);
     };
     fit();
     window.addEventListener('resize', fit);

@@ -16,10 +16,11 @@ const SEATS: Record<Exclude<Slot, 'B'>, { ax: number; ay: number; gx: number; gy
   TR: { ax: 272, ay: 95, gx: 243, gy: 142 },
   R: { ax: 350, ay: 300, gx: 259, gy: 265, side: true },
 };
-const HANDPOS = [{ x: 63, y: 524, r: -7 }, { x: 131, y: 516, r: -2.5 }, { x: 199, y: 516, r: 2.5 }, { x: 267, y: 524, r: 7 }];
+const HANDPOS = [{ x: 63, y: 452, r: -7 }, { x: 131, y: 444, r: -2.5 }, { x: 199, y: 444, r: 2.5 }, { x: 267, y: 452, r: 7 }];
 type Rect = { x: number; y: number; w: number; r?: number };
-const DRAW: Rect = { x: 134, y: 358, w: 54 };
-const DISC: Rect = { x: 204, y: 358, w: 54, r: 6 };
+const DRAW: Rect = { x: 134, y: 326, w: 54 };
+const DISC: Rect = { x: 204, y: 326, w: 54, r: 6 };
+const PILE_LABEL_Y = DRAW.y + 84; // just under the piles, clear of your hand below
 const SPOT: Rect = { x: 125, y: 236, w: 140, r: -4 };
 const SPOT_SM: Rect = { x: 143, y: 261, w: 104, r: -3 }; // smaller while picking cards for a 7, so side seats stay visible
 const mini = (s: { gx: number; gy: number }, i: number): Rect => ({ x: s.gx + (i % 2) * 31, y: s.gy + Math.floor(i / 2) * 42, w: 28 });
@@ -214,10 +215,10 @@ export default function Table({ code, view, send, now, fx, onShare, onLeave }: T
         {view.deckCount > 2 && <At rect={{ ...DRAW, x: DRAW.x + 6, y: DRAW.y + 6 }} style={{ opacity: 0.5 }}><CardBack w={54} /></At>}
         {view.deckCount > 1 && <At rect={{ ...DRAW, x: DRAW.x + 3, y: DRAW.y + 3 }} style={{ opacity: 0.8 }}><CardBack w={54} /></At>}
         {view.deckCount > 0 && <At rect={DRAW} cls={canDraw ? 'glow' : ''} onTap={canDraw ? () => send({ t: 'draw' }) : undefined} label={canDraw ? 'Draw a card' : 'Draw pile'}><CardBack w={54} /></At>}
-        <span className={`pl-label${canDraw ? ' hi' : ''}`} style={{ left: DRAW.x + 27, top: 448 }}>{view.deckCount} LEFT</span>
+        <span className={`pl-label${canDraw ? ' hi' : ''}`} style={{ left: DRAW.x + 27, top: PILE_LABEL_Y }}>{view.deckCount} LEFT</span>
         {view.discardTop ? <At rect={DISC} label={`Thrown away: ${view.discardTop.r}${view.discardTop.s}`}><CardFace rank={view.discardTop.r} suit={view.discardTop.s} w={54} /></At>
           : <span className="pl-empty" style={{ left: DISC.x, top: DISC.y, width: 54, height: 76 }} />}
-        <span className="pl-label" style={{ left: DISC.x + 27, top: 448 }}>THROWN</span>
+        <span className="pl-label" style={{ left: DISC.x + 27, top: PILE_LABEL_Y }}>THROWN</span>
         {last && (
           <div className="pl-ticker" role="status">
             <i style={{ ['--gem' as string]: last.seat !== null && seats[last.seat] ? GEM_COLOR[seats[last.seat].gem] : 'var(--gold)' } as CSSProperties} />
@@ -341,7 +342,7 @@ export default function Table({ code, view, send, now, fx, onShare, onLeave }: T
       {view.pausedUntil && <div className="pl-status" role="status">PAUSED</div>}
       {center}
       {handEls}
-      {phase === 'lobby' && extra && <div className="pl-extra" style={{ top: 470 }}>{extra}</div>}
+      {phase === 'lobby' && extra && <div className="pl-extra" style={{ top: 412 }}>{extra}</div>}
       {plate}
       {flash.stamp && <div className="pl-stamp" aria-hidden="true">{flash.stamp}</div>}
       <div className="pl-bar" aria-live="polite">
