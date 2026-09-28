@@ -106,7 +106,8 @@ export default function Table({ code, view, send, now, fx, onShare, onLeave }: T
           : <div className={avCls} style={avStyle} aria-hidden="true">{s.name[0]?.toUpperCase()}{winners.has(p) && <span className="pl-crown" />}</div>}
         <span className="pl-pill" style={{ left: pos.ax, top: pos.ay + 27 }}>{s.name}</span>
         {phase === 'lobby' && p === view.host && tag('HOST')}
-        {s.bot && phase !== 'lobby' && tag('BOT', 'bot')}
+        {s.kicked && tag('REMOVED', 'away')}
+        {s.bot && !s.kicked && phase !== 'lobby' && tag('BOT', 'bot')}
         {!s.bot && !s.connected && tag('AWAY', 'away')}
         {phase === 'memorize' && s.ready && s.connected && !s.bot && tag('READY')}
         {phase === 'end' && <span className={`pl-score${winners.has(p) ? ' best' : ''}`} style={{ left: pos.ax + 18, top: pos.ay + 7 }}>{s.total}</span>}
@@ -179,6 +180,7 @@ export default function Table({ code, view, send, now, fx, onShare, onLeave }: T
         <b>{top.length === 1 ? `${top[0].name} wins!` : `${top.map(r => r.name).join(' & ')} tie!`}</b>
         <span>Lowest total: {best} point{best === 1 ? '' : 's'}</span>
         {rest && <small>{rest}</small>}
+        {view.endReason === 'host' && <small>The host ended this game early.</small>}
       </div>
     );
   } else if (myTurn && step === 'pJ' && peek) {

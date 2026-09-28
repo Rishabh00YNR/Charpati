@@ -7,6 +7,7 @@ type ConnState = { token: string | null };
 export type ServerMessage =
   | { t: 'view'; view: ReturnType<typeof viewFor>; now: number } // now: the room's clock, so phones can show accurate countdowns
   | { t: 'seat'; token: string }
+  | { t: 'kicked' } // the host removed this phone's player
   | { t: 'error'; msg: string };
 
 const EMPTY_ROOM_TTL_MS = 6 * 60 * 60 * 1000; // an empty, finished room is deleted after 6 hours
@@ -52,9 +53,18 @@ export class Room extends Server<Env> {
     }
     const seat = this.seatOf(conn);
     if (seat === null) return this.send(conn, { t: 'error', msg: 'Take a seat to play.' });
+    // Remember who is being removed: their seat pass changes (or their seat goes) once the move is applied.
+    const kickedToken = move.t === 'kick' ? this.game.seats[move.seat]?.token ?? null : null;
     const err = apply(this.game, seat, move, Date.now(), rng);
     if (err) return this.send(conn, { t: 'error', msg: err });
     if (move.t === 'leave') conn.setState({ token: null });
+    if (kickedToken) {
+      for (const c of this.getConnections<ConnState>()) {
+        if (c.state?.token !== kickedToken) continue;
+        c.setState({ token: null }); // from now on that phone only watches
+        this.send(c, { t: 'kicked' });
+      }
+    }
     this.commit();
   }
 

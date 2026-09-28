@@ -47,6 +47,7 @@ export type Seat = {
   ready: boolean; // finished memorising
   misses: number; // turns in a row that ran out of time
   bot: boolean;
+  kicked?: boolean; // removed by the host mid-game: a bot plays out their cards; dropped before the next game
 };
 export type Step = 'draw' | 'choose' | 'p7' | 'pK' | 'pQ' | 'pJ';
 export type LogEntry = { t: string; seat: number | null };
@@ -75,7 +76,7 @@ export type Game = {
   deadline: number | null; // ms timestamp when the current turn (or memorising) runs out
   botAt: number | null; // when the bot playing the current seat acts next
   idleSince: number | null; // set while nobody is really playing: the game is paused
-  endReason: 'deck' | 'abandoned' | null; // why the last game ended
+  endReason: 'deck' | 'abandoned' | 'host' | null; // why the last game ended
   lastActivity: number; // when someone last did something (for closing forgotten lobbies and results screens)
   round: number;
   log: LogEntry[];
@@ -99,7 +100,10 @@ export type Move =
   | { t: 'peekJ'; seat: number }
   | { t: 'done' }
   | { t: 'takeBack' }
-  | { t: 'rematch' };
+  | { t: 'rematch' }
+  // Host only
+  | { t: 'kick'; seat: number; id?: string } // id guards against removing the wrong person if seats just shifted
+  | { t: 'endGame' };
 
 export type Rng = () => number; // [0, 1)
 
@@ -290,9 +294,51 @@ function applyMove(g: Game, seat: number, m: Move, now: number, rng: Rng): strin
       me.gem = m.gem;
       return null;
     case 'timer':
+      // Any time; a change applies from the next turn.
       if (!host) return 'Only the host can change the timer.';
-      if (g.phase !== 'lobby' && g.phase !== 'end') return 'The timer can be changed between games.';
       g.timerSec = Math.min(TIMER.max, Math.max(TIMER.min, Math.round(Number(m.sec) / TIMER.step) * TIMER.step || TIMER.default));
+      return null;
+    case 'kick': {
+      if (!host) return 'Only the host can remove players.';
+      const t = m.seat;
+      if (!Number.isInteger(t) || t < 0 || t >= g.seats.length) return 'Pick a player.';
+      if (t === seat) return 'You can’t remove yourself. Leave the table instead.';
+      const them = g.seats[t];
+      if (m.id && them.id !== m.id) return 'The table just changed. Try again.';
+      if (g.phase === 'lobby') {
+        g.seats.splice(t, 1);
+        log(g, `${them.name} was removed by the host.`);
+        return null;
+      }
+      if (them.kicked) return null;
+      // Mid-game their cards stay on the table: a bot plays them out, and their seat pass stops working.
+      them.kicked = true;
+      them.bot = true;
+      them.ready = true;
+      them.connected = false;
+      them.token = randomId(rng);
+      log(g, `${them.name} was removed by the host. A bot plays their cards for the rest of this game.`);
+      if (g.phase === 'play' && g.cur === t) g.botAt = now + BOT_DELAY_MS;
+      maybeStartPlay(g, now);
+      return null;
+    }
+    case 'endGame':
+      if (!host) return 'Only the host can end the game.';
+      if (g.phase !== 'memorize' && g.phase !== 'play') return 'There’s no game running.';
+      if (g.drawn) g.discard.push(g.drawn);
+      g.phase = 'end';
+      g.endReason = 'host';
+      g.lastActivity = now;
+      g.drawn = null;
+      g.peek = null;
+      g.deadline = null;
+      g.botAt = null;
+      g.fx.push({ k: 'end' });
+      {
+        const best = Math.min(...g.seats.map(s => total(s.cards)));
+        const won = g.seats.filter(s => total(s.cards) === best).map(s => s.name);
+        log(g, `${me.name} ended the game. ${won.join(' and ')} ${won.length > 1 ? 'tie' : 'wins'} with ${best}.`, seat);
+      }
       return null;
     case 'start':
       if (!host) return 'Only the host can start the game.';
@@ -302,12 +348,24 @@ function applyMove(g: Game, seat: number, m: Move, now: number, rng: Rng): strin
       deal(g, now, rng);
       return null;
     case 'rematch':
-      if (!host) return 'Only the host can start a rematch.';
+      if (!host) return 'Only the host can start a new game.';
       if (g.phase !== 'end') return 'Finish this game first.';
+      // Players the host removed don't come back for the next game.
+      g.seats = g.seats.filter(s => !s.kicked);
+      if (g.seats.length < MIN_SEATS) {
+        g.phase = 'lobby';
+        g.endReason = null;
+        g.deck = [];
+        g.discard = [];
+        for (const s of g.seats) { s.cards = []; s.ready = false; s.bot = false; s.misses = 0; }
+        log(g, `Not enough players for a new game. Invite more friends, then start.`);
+        return null;
+      }
       g.starter = (g.starter + 1) % g.seats.length;
       deal(g, now, rng);
       return null;
     case 'takeBack':
+      if (me.kicked) return 'The host removed you from this game.';
       if (!me.bot) return null;
       me.bot = false;
       me.misses = 0;
@@ -511,6 +569,7 @@ function botAct(g: Game, now: number, rng: Rng) {
 // ---- What one phone is allowed to see -----------------------------------------------------
 export type SeatView = {
   id: string; name: string; gem: Gem; connected: boolean; bot: boolean; ready: boolean;
+  kicked: boolean; // removed by the host; a bot is finishing their cards
   cards: (Card | null)[]; // null = face down to you
   total: number | null; // only at the end
 };
@@ -544,7 +603,7 @@ export function viewFor(g: Game, you: number | null): View {
     const peeking = g.phase === 'play' && g.peek !== null && you === g.cur && g.peek.target === i;
     const show = end || mineWhileMemorising || peeking;
     return {
-      id: s.id, name: s.name, gem: s.gem, connected: s.connected, bot: s.bot, ready: s.ready,
+      id: s.id, name: s.name, gem: s.gem, connected: s.connected, bot: s.bot, ready: s.ready, kicked: !!s.kicked,
       cards: s.cards.map(c => (show ? { ...c } : null)),
       total: end ? total(s.cards) : null,
     };

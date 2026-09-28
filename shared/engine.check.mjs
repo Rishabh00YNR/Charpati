@@ -148,4 +148,45 @@ function started(players, seed) {
   tick(g, now + ROOM_IDLE_CLOSE_MS, rng);
   if (g.phase !== 'closed') fail('idle results screen did not close');
 }
+// ---- Host controls ------------------------------------------------------------------------
+{
+  // Lobby: the host frees a seat; nobody else can remove players; the host can't remove themself.
+  const rng = rngFrom(21), g = newGame(), now = 12_000_000;
+  for (let i = 0; i < 4; i++) join(g, `H${i}`, undefined, rng, now);
+  if (apply(g, 1, { t: 'kick', seat: 2 }, now, rng) === null) fail('a non-host removed a player');
+  if (apply(g, 0, { t: 'kick', seat: 0 }, now, rng) === null) fail('the host removed themself');
+  if (apply(g, 0, { t: 'kick', seat: 3 }, now, rng) !== null || g.seats.length !== 3) fail('lobby kick failed');
+}
+{
+  // Mid-game: the removed player's cards stay, a bot plays them, their seat pass stops working.
+  let { g, rng, now } = started(4, 31);
+  const victim = (g.cur + 1) % 4, oldToken = g.seats[victim].token;
+  const hostSeat = g.seats.findIndex(s => s.connected);
+  if (apply(g, hostSeat, { t: 'kick', seat: victim }, now, rng) !== null) fail('mid-game kick failed');
+  const v = g.seats[victim];
+  if (!v.kicked || !v.bot || v.token === oldToken || v.cards.length !== HAND) fail('kicked seat not handed to a bot');
+  if (apply(g, victim, { t: 'takeBack' }, now, rng) === null) fail('a removed player took their seat back');
+  if (!viewFor(g, 0).seats[victim].kicked) fail('view does not show the removed player');
+  checkInvariants(g);
+  // The host changes the timer mid-game; it applies from the next turn.
+  if (apply(g, hostSeat, { t: 'timer', sec: 60 }, now, rng) !== null || g.timerSec !== 60) fail('mid-game timer change failed');
+  // The host ends the game now: cards shown, lowest total wins.
+  if (g.step === 'draw') apply(g, g.cur, { t: 'draw' }, now, rng); // a drawn card must not vanish
+  if (apply(g, (hostSeat + 1) % 4, { t: 'endGame' }, now, rng) === null) fail('a non-host ended the game');
+  if (apply(g, hostSeat, { t: 'endGame' }, now, rng) !== null || g.phase !== 'end' || g.endReason !== 'host') fail('host could not end the game');
+  const ev = viewFor(g, 1);
+  if (!ev.winners?.length || ev.seats.some(s => s.cards.some(c => !c))) fail('host-ended game did not reveal and score');
+  checkInvariants(g);
+  // New game: the removed player is gone; 3 remain, so a new deal starts.
+  if (apply(g, hostSeat, { t: 'rematch' }, now, rng) !== null || g.seats.length !== 3 || g.phase !== 'memorize') fail('new game did not drop the removed player');
+  checkInvariants(g);
+}
+{
+  // If removing players leaves fewer than 3, a new game goes back to the lobby to invite more.
+  let { g, rng, now } = started(3, 41);
+  apply(g, 0, { t: 'kick', seat: 2 }, now, rng);
+  apply(g, 0, { t: 'endGame' }, now, rng);
+  if (apply(g, 0, { t: 'rematch' }, now, rng) !== null || g.phase !== 'lobby' || g.seats.length !== 2) fail('short table did not return to the lobby');
+  checkInvariants(g);
+}
 console.log('All checks passed.', stats);

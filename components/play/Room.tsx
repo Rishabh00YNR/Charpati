@@ -6,8 +6,9 @@ import PartySocket from 'partysocket';
 import { GEMS, type Fx, type Gem, type Move, type View } from '@/shared/engine';
 import { GEM_COLOR, ROOMS_HOST, clearSeatToken, isCode, loadProfile, loadSeatToken, saveProfile, saveSeatToken } from '@/lib/rooms';
 import Table from './Table';
+import HostSheet from './HostSheet';
 
-type ServerMessage = { t: 'view'; view: View; now: number } | { t: 'seat'; token: string } | { t: 'error'; msg: string };
+type ServerMessage = { t: 'view'; view: View; now: number } | { t: 'seat'; token: string } | { t: 'kicked' } | { t: 'error'; msg: string };
 
 export default function Room({ code }: { code: string }) {
   const router = useRouter();
@@ -21,6 +22,7 @@ export default function Room({ code }: { code: string }) {
   const [scale, setScale] = useState(1);
   const [name, setName] = useState('');
   const [gem, setGem] = useState<Gem>('topaz');
+  const [hostOpen, setHostOpen] = useState(false);
   const sock = useRef<PartySocket | null>(null);
   const toastTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 
@@ -62,6 +64,9 @@ export default function Room({ code }: { code: string }) {
         if (m.view.fx.length) setFx(f => ({ list: m.view.fx, key: f.key + 1 }));
       } else if (m.t === 'seat') {
         saveSeatToken(code, m.token);
+      } else if (m.t === 'kicked') {
+        clearSeatToken(code);
+        showToast('The host removed you from this table. You can keep watching.');
       } else if (m.t === 'error') {
         showToast(m.msg);
       }
@@ -113,13 +118,17 @@ export default function Room({ code }: { code: string }) {
   }
 
   const needsSeat = !!view && view.you === null && view.phase === 'lobby' && view.seats.length < 5;
+  const isHost = !!view && view.you !== null && view.you === view.host && view.phase !== 'closed';
 
   return (
     <div className="pl-app">
       <div className="pl-stage" style={{ ['--s' as string]: scale } as CSSProperties}>
         <div className="pl-top">
           <span className="brand">Charpati</span>
-          {valid && <button type="button" className="pl-code" onClick={share} aria-label={`Room ${code}. Share the invite`}><small>ROOM</small>{code}</button>}
+          <div className="pl-top-right">
+            {isHost && <button type="button" className="pl-host-btn" onClick={() => setHostOpen(true)} aria-label="Host controls">HOST</button>}
+            {valid && <button type="button" className="pl-code" onClick={share} aria-label={`Room ${code}. Share the invite`}><small>ROOM</small>{code}</button>}
+          </div>
         </div>
 
         {!valid ? (
@@ -134,6 +143,7 @@ export default function Room({ code }: { code: string }) {
         )}
 
         {view && !online && <div className="pl-status" role="status">Reconnecting…</div>}
+        {hostOpen && isHost && view && <HostSheet view={view} send={send} onClose={() => setHostOpen(false)} />}
         {toast && <div className="pl-toast" role="alert">{toast}</div>}
 
         {needsSeat && (
