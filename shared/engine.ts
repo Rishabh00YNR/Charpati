@@ -17,7 +17,11 @@ export const MAX_SEATS = 5;
 export const TIMER = { min: 15, max: 120, step: 5, default: 30 }; // seconds per turn; the host can change it
 export const MEMO_SEC = 45; // time everyone gets to memorise their cards
 export const MISSES_FOR_BOT = 3; // missed turns in a row before a bot takes the seat
-export const BOT_DELAY_MS = 1400; // bots pause between actions so people can follow
+// Bots take their time so everyone can follow: 3 to 5 seconds after their turn starts (so the last
+// move has finished moving on everyone's screen) before they draw, then a moment to think.
+export const BOT_WAIT_MS = { min: 3000, max: 5000 };
+export const BOT_DECIDE_MS = 2200;
+const botWait = (g: Game) => BOT_WAIT_MS.min + ((g.deck.length * 7 + g.cur * 3) % 5) * ((BOT_WAIT_MS.max - BOT_WAIT_MS.min) / 4);
 // When nobody is really playing (every seat is disconnected or run by a bot) the game pauses, and ends
 // after this long unless someone comes back. Short enough to stop bots playing an empty table,
 // long enough that a phone locking for a moment doesn't end the game.
@@ -48,7 +52,10 @@ export type Seat = {
   misses: number; // turns in a row that ran out of time
   bot: boolean;
   kicked?: boolean; // removed by the host mid-game: a bot plays out their cards; dropped before the next game
+  robot?: boolean; // a bot the host added to fill a seat (never a person); stays for rematches
 };
+// Names for bots the host adds. Up to 12 characters, like player names.
+export const BOT_NAMES = ['Alex', 'Sam', 'Max', 'Leo', 'Mia', 'Zoe'];
 export type Step = 'draw' | 'choose' | 'p7' | 'pK' | 'pQ' | 'pJ';
 export type LogEntry = { t: string; seat: number | null };
 // What just happened, so phones can animate it. Cleared after every broadcast.
@@ -88,7 +95,7 @@ export type Move =
   | { t: 'leave' }
   | { t: 'gem'; gem: Gem }
   | { t: 'timer'; sec: number }
-  | { t: 'start' }
+  | { t: 'start'; fill?: boolean } // fill: seat bots until there are enough players, then start
   | { t: 'arrange'; a: number; b: number }
   | { t: 'ready' }
   | { t: 'draw' }
@@ -103,6 +110,8 @@ export type Move =
   | { t: 'rematch' }
   // Host only
   | { t: 'kick'; seat: number; id?: string } // id guards against removing the wrong person if seats just shifted
+  | { t: 'addBot' }
+  | { t: 'renameBot'; seat: number; id: string; name: string }
   | { t: 'endGame' };
 
 export type Rng = () => number; // [0, 1)
@@ -151,7 +160,7 @@ function updateIdle(g: Game, now: number) {
     log(g, 'Someone is back. The game carries on.');
     if (g.phase === 'play') {
       g.deadline = now + g.timerSec * 1000;
-      g.botAt = g.seats[g.cur].bot ? now + BOT_DELAY_MS : null;
+      g.botAt = g.seats[g.cur].bot ? now + botWait(g) : null;
     } else {
       g.deadline = now + MEMO_SEC * 1000;
     }
@@ -192,15 +201,30 @@ export function join(g: Game, rawName: string, gem: Gem | undefined, rng: Rng, n
   if (g.phase !== 'lobby') return { error: 'This game has already started.' };
   g.lastActivity = now;
   if (g.seats.length >= MAX_SEATS) return { error: 'This table is full (5 players).' };
-  let name = String(rawName ?? '').replace(/\s+/g, ' ').trim().slice(0, 12) || `Player ${g.seats.length + 1}`;
-  const taken = new Set(g.seats.map(s => s.name.toLowerCase()));
-  for (let n = 2; taken.has(name.toLowerCase()); n++) name = `${name.replace(/ \d+$/, '')} ${n}`;
+  const name = cleanName(g, rawName, `Player ${g.seats.length + 1}`);
   const used = new Set(g.seats.map(s => s.gem));
   const pick = gem && !used.has(gem) ? gem : GEMS.find(x => !used.has(x))!;
   const seat: Seat = { id: randomId(rng, 8), token: randomId(rng), name, gem: pick, cards: [], connected: true, ready: false, misses: 0, bot: false };
   g.seats.push(seat);
   log(g, `${name} sat down.`, g.seats.length - 1);
   return { seat: g.seats.length - 1, token: seat.token };
+}
+
+// Up to 12 characters, and never the same as someone else at the table ("Sam" becomes "Sam 2").
+function cleanName(g: Game, raw: unknown, fallback: string, except = -1) {
+  let name = String(raw ?? '').replace(/\s+/g, ' ').trim().slice(0, 12) || fallback;
+  const taken = new Set(g.seats.filter((_, i) => i !== except).map(s => s.name.toLowerCase()));
+  for (let n = 2; taken.has(name.toLowerCase()); n++) name = `${name.replace(/ \d+$/, '')} ${n}`;
+  return name;
+}
+
+// A bot the host adds to fill a seat. Nobody holds its seat pass, so no phone can ever play as it.
+function seatBot(g: Game, rng: Rng) {
+  const names = new Set(g.seats.map(s => s.name.toLowerCase()));
+  const used = new Set(g.seats.map(s => s.gem));
+  const name = BOT_NAMES.find(x => !names.has(x.toLowerCase())) ?? cleanName(g, 'Bot', 'Bot');
+  g.seats.push({ id: randomId(rng, 8), token: randomId(rng), name, gem: GEMS.find(x => !used.has(x))!, cards: [], connected: false, ready: true, misses: 0, bot: true, robot: true });
+  log(g, `${name} joined the table.`, g.seats.length - 1);
 }
 
 function deal(g: Game, now: number, rng: Rng) {
@@ -242,7 +266,7 @@ function startTurn(g: Game, now: number) {
   g.drawn = null;
   g.peek = null;
   g.deadline = now + g.timerSec * 1000;
-  g.botAt = g.seats[g.cur].bot ? now + BOT_DELAY_MS : null;
+  g.botAt = g.seats[g.cur].bot ? now + botWait(g) : null;
 }
 
 function endTurn(g: Game, now: number) {
@@ -318,8 +342,22 @@ function applyMove(g: Game, seat: number, m: Move, now: number, rng: Rng): strin
       them.connected = false;
       them.token = randomId(rng);
       log(g, `${them.name} was removed by the host. A bot plays their cards for the rest of this game.`);
-      if (g.phase === 'play' && g.cur === t) g.botAt = now + BOT_DELAY_MS;
+      if (g.phase === 'play' && g.cur === t) g.botAt = now + botWait(g);
       maybeStartPlay(g, now);
+      return null;
+    }
+    case 'addBot':
+      if (!host) return 'Only the host can add bots.';
+      if (g.phase !== 'lobby') return 'Bots can only join before the game starts.';
+      if (g.seats.length >= MAX_SEATS) return 'This table is full (5 players).';
+      seatBot(g, rng);
+      return null;
+    case 'renameBot': {
+      if (!host) return 'Only the host can rename bots.';
+      const bot = g.seats[m.seat];
+      if (!bot || bot.id !== m.id) return 'The table just changed. Try again.';
+      if (!bot.robot) return 'You can only rename bots.';
+      bot.name = cleanName(g, m.name, bot.name, m.seat);
       return null;
     }
     case 'endGame':
@@ -343,6 +381,7 @@ function applyMove(g: Game, seat: number, m: Move, now: number, rng: Rng): strin
     case 'start':
       if (!host) return 'Only the host can start the game.';
       if (g.phase !== 'lobby') return 'The game has already started.';
+      if (m.fill) while (g.seats.length < MIN_SEATS) seatBot(g, rng);
       if (g.seats.length < MIN_SEATS) return `You need at least ${MIN_SEATS} players.`;
       g.starter = 0;
       deal(g, now, rng);
@@ -357,7 +396,7 @@ function applyMove(g: Game, seat: number, m: Move, now: number, rng: Rng): strin
         g.endReason = null;
         g.deck = [];
         g.discard = [];
-        for (const s of g.seats) { s.cards = []; s.ready = false; s.bot = false; s.misses = 0; }
+        for (const s of g.seats) { s.cards = []; s.ready = !!s.robot; s.bot = !!s.robot; s.misses = 0; }
         log(g, `Not enough players for a new game. Invite more friends, then start.`);
         return null;
       }
@@ -440,7 +479,7 @@ function turnMove(g: Game, m: Move, now: number, rng: Rng): string | null {
       const them = g.seats[m.seat];
       [me.cards[m.mine], them.cards[m.i]] = [them.cards[m.i], me.cards[m.mine]];
       g.discard.push(g.drawn!);
-      g.fx.push({ k: 'swap', a: [cur, m.mine], b: [m.seat, m.i] });
+      g.fx.push({ k: 'swap', a: [cur, m.mine], b: [m.seat, m.i] }, { k: 'throw', seat: cur }); // then the 7 goes on the pile
       log(g, `${me.name} played a 7 and swapped their card ${m.mine + 1} with ${them.name}'s card ${m.i + 1}. Nobody looked.`, cur);
       endTurn(g, now);
       return null;
@@ -451,7 +490,7 @@ function turnMove(g: Game, m: Move, now: number, rng: Rng): string | null {
       const them = g.seats[m.seat];
       shuffleInPlace(them.cards, rng);
       g.discard.push(g.drawn!);
-      g.fx.push({ k: 'shuffle', seat: m.seat });
+      g.fx.push({ k: 'shuffle', seat: m.seat }, { k: 'throw', seat: cur }); // then the Q goes on the pile
       log(g, `${me.name} played a Q and shuffled ${them.name}'s cards.`, cur);
       endTurn(g, now);
       return null;
@@ -505,7 +544,7 @@ export function tick(g: Game, now: number, rng: Rng): boolean {
   if (me.bot) {
     if (g.botAt === null || now < g.botAt) return false;
     botAct(g, now, rng);
-    if (g.phase === 'play' && g.seats[g.cur] === me && me.bot) g.botAt = now + BOT_DELAY_MS;
+    if (g.phase === 'play' && g.seats[g.cur] === me && me.bot) g.botAt = now + BOT_DECIDE_MS; // same turn: a moment to think
     return true;
   }
   if (g.deadline === null || now < g.deadline) return false;
@@ -570,6 +609,7 @@ function botAct(g: Game, now: number, rng: Rng) {
 export type SeatView = {
   id: string; name: string; gem: Gem; connected: boolean; bot: boolean; ready: boolean;
   kicked: boolean; // removed by the host; a bot is finishing their cards
+  robot: boolean; // a bot the host added, not a person
   cards: (Card | null)[]; // null = face down to you
   total: number | null; // only at the end
 };
@@ -603,7 +643,7 @@ export function viewFor(g: Game, you: number | null): View {
     const peeking = g.phase === 'play' && g.peek !== null && you === g.cur && g.peek.target === i;
     const show = end || mineWhileMemorising || peeking;
     return {
-      id: s.id, name: s.name, gem: s.gem, connected: s.connected, bot: s.bot, ready: s.ready, kicked: !!s.kicked,
+      id: s.id, name: s.name, gem: s.gem, connected: s.connected, bot: s.bot, ready: s.ready, kicked: !!s.kicked, robot: !!s.robot,
       cards: s.cards.map(c => (show ? { ...c } : null)),
       total: end ? total(s.cards) : null,
     };

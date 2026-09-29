@@ -189,4 +189,65 @@ function started(players, seed) {
   if (apply(g, 0, { t: 'rematch' }, now, rng) !== null || g.phase !== 'lobby' || g.seats.length !== 2) fail('short table did not return to the lobby');
   checkInvariants(g);
 }
+{
+  // Bots the host adds: one person plus two bots can play a whole game, and the bots stay for the next one.
+  const rng = rngFrom(51), g = newGame();
+  let now = 15_000_000;
+  join(g, 'Solo', undefined, rng, now);
+  join(g, 'Friend', undefined, rng, now);
+  if (apply(g, 1, { t: 'addBot' }, now, rng) === null) fail('a non-host added a bot');
+  apply(g, 1, { t: 'leave' }, now, rng);
+  if (apply(g, 0, { t: 'start' }, now, rng) === null) fail('started with one player');
+  apply(g, 0, { t: 'addBot' }, now, rng);
+  apply(g, 0, { t: 'addBot' }, now, rng);
+  const bots = g.seats.filter(s => s.robot);
+  if (bots.length !== 2 || !bots.every(s => s.bot && !s.connected) || new Set(g.seats.map(s => s.name)).size !== 3 || new Set(g.seats.map(s => s.gem)).size !== 3) fail('bots not added properly');
+  if (!viewFor(g, 0).seats[1].robot) fail('view does not show the bot');
+  if (g.idleSince !== null) fail('bots made the lobby look idle');
+  if (apply(g, 0, { t: 'start' }, now, rng) !== null || g.phase !== 'memorize') fail('host + 2 bots could not start');
+  apply(g, 0, { t: 'ready' }, now, rng);
+  if (g.phase !== 'play' || g.idleSince !== null) fail('game with bots did not start playing');
+  let guard = 0;
+  while (g.phase === 'play' && guard++ < 2000) {
+    if (g.cur === 0) {
+      apply(g, 0, { t: 'draw' }, now, rng);
+      if (g.step === 'choose') apply(g, 0, { t: 'throw' }, now, rng);
+      else if (g.step === 'pK') { apply(g, 0, { t: 'look' }, now, rng); apply(g, 0, { t: 'done' }, now, rng); }
+      else if (g.step === 'pJ') { apply(g, 0, { t: 'peekJ', seat: 1 }, now, rng); apply(g, 0, { t: 'done' }, now, rng); }
+      else if (g.step === 'pQ') apply(g, 0, { t: 'shuffleQ', seat: 1 }, now, rng);
+      else if (g.step === 'p7') apply(g, 0, { t: 'swap7', mine: 0, seat: 2, i: 0 }, now, rng);
+    } else { now = nextWake(g); tick(g, now, rng); }
+    checkInvariants(g);
+  }
+  if (g.phase !== 'end' || g.endReason !== 'deck') fail(`game with bots did not finish: ${g.phase}/${g.endReason}`);
+  if (apply(g, 0, { t: 'rematch' }, now, rng) !== null || g.phase !== 'memorize' || g.seats.filter(s => s.robot && s.ready).length !== 2) fail('bots did not stay for the next game');
+  if (apply(g, 0, { t: 'addBot' }, now, rng) === null) fail('added a bot mid-game');
+  // Removing a bot in the lobby frees the seat; the table fills up at 5.
+  const g2 = newGame();
+  join(g2, 'Host', undefined, rng, now);
+  for (let i = 0; i < 4; i++) apply(g2, 0, { t: 'addBot' }, now, rng);
+  if (g2.seats.length !== 5 || apply(g2, 0, { t: 'addBot' }, now, rng) === null) fail('bots overfilled the table');
+  apply(g2, 0, { t: 'kick', seat: 2 }, now, rng);
+  if (g2.seats.length !== 4) fail('could not remove a bot in the lobby');
+  // Renaming bots: host only, bots only, names stay unique and short.
+  if (g2.seats[1].name !== 'Alex') fail(`first bot should be Alex, got ${g2.seats[1].name}`);
+  join(g2, 'Guest', undefined, rng, now);
+  const b1 = g2.seats[1], b2 = g2.seats[2];
+  if (apply(g2, 4, { t: 'renameBot', seat: 1, id: b1.id, name: 'Player 1' }, now, rng) === null) fail('a non-host renamed a bot');
+  if (apply(g2, 0, { t: 'renameBot', seat: 4, id: g2.seats[4].id, name: 'X' }, now, rng) === null) fail('renamed a person');
+  apply(g2, 0, { t: 'renameBot', seat: 1, id: b1.id, name: '  Player   1 ' }, now, rng);
+  apply(g2, 0, { t: 'renameBot', seat: 2, id: b2.id, name: 'player 1' }, now, rng);
+  apply(g2, 0, { t: 'renameBot', seat: 3, id: g2.seats[3].id, name: 'A very long bot name' }, now, rng);
+  if (b1.name !== 'Player 1' || b2.name.toLowerCase() === 'player 1' || new Set(g2.seats.map(s => s.name.toLowerCase())).size !== 5 || g2.seats[3].name.length > 12) fail(`rename not cleaned: ${g2.seats.map(s => s.name)}`);
+  if (apply(g2, 0, { t: 'renameBot', seat: 1, id: 'wrong', name: 'Z' }, now, rng) === null) fail('renamed with a stale id');
+  stats.botGameTurns = guard;
+  // "Start with 2 bots": a host on their own fills the table to 3 and starts in one move.
+  const g3 = newGame();
+  join(g3, 'Alone', undefined, rng, now);
+  if (apply(g3, 0, { t: 'start', fill: true }, now, rng) !== null || g3.phase !== 'memorize' || g3.seats.length !== 3 || g3.seats.filter(s => s.robot).length !== 2) fail('start with bots did not fill the table');
+  const g4 = newGame();
+  for (const nm of ['A', 'B', 'C', 'D']) join(g4, nm, undefined, rng, now);
+  apply(g4, 0, { t: 'start', fill: true }, now, rng);
+  if (g4.seats.some(s => s.robot)) fail('start with bots added bots to a table that had enough players');
+}
 console.log('All checks passed.', stats);

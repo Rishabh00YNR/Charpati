@@ -1,14 +1,18 @@
 'use client';
 
-import { useCallback, useEffect, useRef, useState, type CSSProperties, type FormEvent } from 'react';
+import { useCallback, useEffect, useRef, useState, type CSSProperties } from 'react';
 import { useRouter } from 'next/navigation';
 import PartySocket from 'partysocket';
-import { GEMS, type Fx, type Gem, type Move, type View } from '@/shared/engine';
-import { GEM_COLOR, ROOMS_HOST, clearSeatToken, isCode, loadProfile, loadSeatToken, saveProfile, saveSeatToken } from '@/lib/rooms';
+import type { Fx, Gem, Move, View } from '@/shared/engine';
+import { ROOMS_HOST, clearSeatToken, isCode, loadProfile, loadSeatToken, saveProfile, saveSeatToken } from '@/lib/rooms';
+import { STAGE, layoutKind, type Layout } from './layout';
 import Table from './Table';
+import Lobby from './Lobby';
 import HostSheet from './HostSheet';
 
 type ServerMessage = { t: 'view'; view: View; now: number } | { t: 'seat'; token: string } | { t: 'kicked' } | { t: 'error'; msg: string };
+// Arriving from the Play screen: sit straight down (and for practice, add the bots and deal).
+type Auto = { go: 'host' } | { go: 'bots' } | { go: 'solo'; bots: number; sec: number };
 
 export default function Room({ code }: { code: string }) {
   const router = useRouter();
@@ -19,10 +23,12 @@ export default function Room({ code }: { code: string }) {
   const [clock, setClock] = useState(() => Date.now());
   const [fx, setFx] = useState<{ list: Fx[]; key: number }>({ list: [], key: 0 });
   const [toast, setToast] = useState('');
+  const [kind, setKind] = useState<Layout['kind']>('phone');
   const [scale, setScale] = useState(1);
-  const [name, setName] = useState('');
-  const [gem, setGem] = useState<Gem>('topaz');
+  const [profile, setProfile] = useState<{ name: string; gem: Gem }>({ name: '', gem: 'topaz' });
   const [hostOpen, setHostOpen] = useState(false);
+  // 'sent' = waiting for the seat to arrive.
+  const [auto, setAuto] = useState<Auto | 'sent' | null>(null);
   const sock = useRef<PartySocket | null>(null);
   const toastTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 
@@ -32,11 +38,13 @@ export default function Room({ code }: { code: string }) {
     toastTimer.current = setTimeout(() => setToast(''), 3500);
   }, []);
 
-  // Fit the 390 x 772 stage to the screen (as big as fits, capped so it doesn't get huge on a laptop).
+  // Pick the tall or the wide table for this screen, and scale it to fit.
   useEffect(() => {
     const fit = () => {
-      const el = document.querySelector('.pl-app');
-      if (el) setScale(Math.min(el.clientWidth / 390, el.clientHeight / 772, 1.6) || 1);
+      const w = window.innerWidth, h = window.innerHeight;
+      const k = layoutKind(w, h), s = STAGE[k];
+      setKind(k);
+      setScale(Math.min(w / s.W, h / s.H, s.max) || 1);
     };
     fit();
     window.addEventListener('resize', fit);
@@ -45,7 +53,11 @@ export default function Room({ code }: { code: string }) {
 
   useEffect(() => {
     const p = loadProfile();
-    if (p) { setName(p.name); setGem(p.gem); }
+    if (p) setProfile(p);
+    const q = new URLSearchParams(window.location.search), go = q.get('go');
+    if (p && (go === 'host' || go === 'bots')) setAuto({ go });
+    if (p && go === 'solo') setAuto({ go: 'solo', bots: Math.min(4, Math.max(2, Number(q.get('bots')) || 2)), sec: Number(q.get('t')) || 30 });
+    if (go) window.history.replaceState(null, '', window.location.pathname); // a reload or a shared link shouldn't repeat it
   }, []);
 
   // Connect to the room. PartySocket reconnects by itself, sending this phone's seat pass each time.
@@ -69,6 +81,7 @@ export default function Room({ code }: { code: string }) {
         showToast('The host removed you from this table. You can keep watching.');
       } else if (m.t === 'error') {
         showToast(m.msg);
+        setAuto(a => (a === 'sent' ? null : a)); // couldn't sit down: show the seat form instead
       }
     });
     sock.current = ws;
@@ -82,92 +95,81 @@ export default function Room({ code }: { code: string }) {
     return () => clearInterval(t);
   }, [view?.deadline, view?.pausedUntil]);
 
-  // If the colour this phone remembers is taken, offer the first free one.
-  const taken = new Set(view?.seats.map(s => s.gem) ?? []);
-  useEffect(() => {
-    if (view && view.you === null && taken.has(gem)) {
-      const free = GEMS.find(g => !taken.has(g));
-      if (free) setGem(free);
-    }
-  }, [view]); // eslint-disable-line react-hooks/exhaustive-deps
-
   const send = useCallback((m: Move) => { sock.current?.send(JSON.stringify(m)); }, []);
 
+  useEffect(() => {
+    if (!auto || !view) return;
+    if (auto === 'sent') { if (view.you !== null) setAuto(null); return; }
+    const p = loadProfile();
+    if (view.you !== null || view.phase !== 'lobby' || !p) { setAuto(null); return; }
+    // The room handles messages in order, so these arrive after the join, with this phone as host.
+    send({ t: 'join', name: p.name, gem: p.gem });
+    if (auto.go === 'bots') { send({ t: 'addBot' }); send({ t: 'addBot' }); }
+    if (auto.go === 'solo') {
+      for (let i = 0; i < auto.bots; i++) send({ t: 'addBot' });
+      send({ t: 'timer', sec: auto.sec });
+      send({ t: 'start' });
+    }
+    setAuto('sent');
+  }, [auto, view, send]);
+
+  const inviteUrl = typeof window === 'undefined' ? `/play/${code}` : `${window.location.origin}/play/${code}`;
+  async function copy() {
+    try { await navigator.clipboard.writeText(inviteUrl); showToast('Invite link copied. Paste it to your friends.'); }
+    catch { showToast(`Share this link: ${inviteUrl}`); }
+  }
   async function share() {
-    const url = `${window.location.origin}/play/${code}`;
-    const text = `Join my Charpati table! Room code ${code}`;
+    const text = `Join my Charpati table! Table code ${code}`;
     try {
-      if (navigator.share) { await navigator.share({ title: 'Charpati', text, url }); return; }
-      await navigator.clipboard.writeText(`${text}: ${url}`);
-      showToast('Invite link copied. Paste it to your friends.');
+      if (navigator.share) { await navigator.share({ title: 'Charpati', text, url: inviteUrl }); return; }
+      await copy();
     } catch { /* the share sheet was closed */ }
   }
-
   function leave() {
     send({ t: 'leave' });
     clearSeatToken(code);
     router.push('/play');
   }
-
-  function sit(e: FormEvent) {
-    e.preventDefault();
-    const nm = name.trim();
-    if (!nm) return showToast('Type your name first.');
-    saveProfile({ name: nm, gem });
-    send({ t: 'join', name: nm, gem });
+  function sit(name: string, gem: Gem) {
+    saveProfile({ name, gem });
+    setProfile({ name, gem });
+    send({ t: 'join', name, gem });
   }
 
-  const needsSeat = !!view && view.you === null && view.phase === 'lobby' && view.seats.length < 5;
   const isHost = !!view && view.you !== null && view.you === view.host && view.phase !== 'closed';
+  const toastEl = toast && <div className="pl-toast fixed" role="alert">{toast}</div>;
 
+  if (!valid || !view || auto === 'sent' || (auto && view.phase === 'lobby' && view.you === null)) {
+    return (
+      <main className="fl-page center" aria-live="polite">
+        <span className="fl-word sm">Charpati</span>
+        {!valid
+          ? <><p className="fl-sub">That table code doesn’t look right. Codes are 4 letters or numbers, like KQ7X.</p><a className="btn big fl-cta" href="/play">Back to Play</a></>
+          : <p className="fl-sub dots">{view ? 'Setting up your table' : `Connecting to table ${code}`}<i /><i /><i /></p>}
+        {toastEl}
+      </main>
+    );
+  }
+
+  if (view.phase === 'lobby') {
+    return (
+      <>
+        <Lobby code={code} view={view} send={send} inviteUrl={inviteUrl} onShare={share} onCopy={copy} onLeave={leave}
+          defaultName={profile.name} defaultGem={profile.gem} onSit={sit} />
+        {!online && <div className="pl-status fixed" role="status">Reconnecting…</div>}
+        {toastEl}
+      </>
+    );
+  }
+
+  const s = STAGE[kind];
   return (
     <div className="pl-app">
-      <div className="pl-stage" style={{ ['--s' as string]: scale } as CSSProperties}>
-        <div className="pl-top">
-          <span className="brand">Charpati</span>
-          <div className="pl-top-right">
-            {isHost && <button type="button" className="pl-host-btn" onClick={() => setHostOpen(true)} aria-label="Host controls">HOST</button>}
-            {valid && <button type="button" className="pl-code" onClick={share} aria-label={`Room ${code}. Share the invite`}><small>ROOM</small>{code}</button>}
-          </div>
-        </div>
-
-        {!valid ? (
-          <div className="pl-center" style={{ top: 330 }}>
-            <span className="small">That room code doesn’t look right. Codes are 4 letters or numbers, like KQ7X.</span>
-            <a className="btn" href="/play">Back to Play</a>
-          </div>
-        ) : !view ? (
-          <div className="pl-center" style={{ top: 380 }}><span className="small">Connecting to room {code}…</span></div>
-        ) : (
-          <Table code={code} view={view} send={send} now={clock + skew} fx={fx} onShare={share} onLeave={leave} />
-        )}
-
-        {view && !online && <div className="pl-status" role="status">Reconnecting…</div>}
-        {hostOpen && isHost && view && <HostSheet view={view} send={send} onClose={() => setHostOpen(false)} />}
+      <div className={`pl-stage k-${kind}`} style={{ width: s.W, height: s.H, ['--s' as string]: scale } as CSSProperties}>
+        <Table code={code} view={view} send={send} now={clock + skew} fx={fx} kind={kind} onShare={share} onHostPanel={() => setHostOpen(true)} />
+        {!online && <div className="pl-status" role="status">Reconnecting…</div>}
+        {hostOpen && isHost && <HostSheet view={view} send={send} onClose={() => setHostOpen(false)} />}
         {toast && <div className="pl-toast" role="alert">{toast}</div>}
-
-        {needsSeat && (
-          <>
-            <div className="pl-sheet-bg" />
-            <form className="pl-sheet" onSubmit={sit} aria-labelledby="sit-h">
-              <h2 id="sit-h">Take a seat</h2>
-              <p>Room {code} · {view!.seats.length} of 5 seated</p>
-              <label className="pl-field" htmlFor="sit-name">
-                Your name
-                <input id="sit-name" maxLength={12} autoComplete="nickname" value={name} onChange={e => setName(e.target.value)} placeholder="e.g. Komal" />
-              </label>
-              <div className="pl-field">
-                Your colour
-                <div className="pl-gems">
-                  {GEMS.map(g => (
-                    <button key={g} type="button" className={`pl-gem${gem === g ? ' on' : ''}`} style={{ ['--gem' as string]: GEM_COLOR[g] } as CSSProperties} disabled={taken.has(g)} onClick={() => setGem(g)} aria-label={g} aria-pressed={gem === g} />
-                  ))}
-                </div>
-              </div>
-              <button type="submit" className="btn big">Sit down</button>
-            </form>
-          </>
-        )}
       </div>
     </div>
   );
