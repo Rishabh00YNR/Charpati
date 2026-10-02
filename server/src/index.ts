@@ -1,5 +1,5 @@
 import { Server, routePartykitRequest, type Connection, type ConnectionContext, type WSMessage } from 'partyserver';
-import { apply, join, newGame, nextWake, setConnected, tick, viewFor, type Game, type Move } from '../../shared/engine';
+import { apply, join, newGame, nextWake, seatLimit, setConnected, tick, viewFor, type Game, type Move } from '../../shared/engine';
 
 // A phone's connection remembers its seat pass (token); null means it's only watching.
 type ConnState = { token: string | null };
@@ -28,7 +28,7 @@ export class Room extends Server<Env> {
   // Lets the join screen ask whether a room exists and has space.
   onRequest(): Response {
     const g = this.game;
-    return Response.json({ phase: g.phase, players: g.seats.length, open: g.phase === 'lobby' && g.seats.length < 5 }, { headers: { 'Access-Control-Allow-Origin': '*' } });
+    return Response.json({ phase: g.phase, players: g.seats.length, size: g.size ?? 'small', open: g.phase === 'lobby' && g.seats.length < seatLimit(g) }, { headers: { 'Access-Control-Allow-Origin': '*' } });
   }
 
   onConnect(conn: Connection<ConnState>, ctx: ConnectionContext) {
@@ -45,7 +45,7 @@ export class Room extends Server<Env> {
     if (!move || typeof move.t !== 'string') return;
     if (move.t === 'join') {
       if (this.seatOf(conn) !== null) return;
-      const r = join(this.game, move.name, move.gem, rng, Date.now());
+      const r = join(this.game, move.name, move.gem, rng, Date.now(), move.wide === true);
       if ('error' in r) return this.send(conn, { t: 'error', msg: r.error });
       conn.setState({ token: r.token });
       this.send(conn, { t: 'seat', token: r.token });

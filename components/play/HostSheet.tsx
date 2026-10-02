@@ -67,7 +67,7 @@ export default function HostSheet({ view, send, onClose }: { view: View; send: (
             );
           })}
         </div>
-        {view.phase === 'lobby' && view.seats.length < 5 && (
+        {view.phase === 'lobby' && view.seats.length < view.limit && (
           <button type="button" className="btn ghost big" onClick={() => send({ t: 'addBot' })}>+ Add a bot</button>
         )}
         {inGame && others.length > 0 && <p>Removing someone mid-game hands their cards to a bot until the game ends.</p>}

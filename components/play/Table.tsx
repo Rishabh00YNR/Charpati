@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState, type CSSProperties, type ReactNode } from 'react';
 import { CardBack, CardFace, PowerCard, type PowerRank } from '@/components/Card';
-import { POWERS, points, type Card, type Fx, type Move, type View } from '@/shared/engine';
+import { POWERS, handSize, points, type Card, type Fx, type Move, type View } from '@/shared/engine';
 import { GEM_COLOR } from '@/lib/rooms';
 import { desktopLayout, hOf, phoneLayout, type Box, type Layout } from './layout';
 import { Flights, useTableMotion } from './motion';
@@ -54,7 +54,10 @@ export default function Table({ code, view, send, now, fx, kind, onShare, onHost
   const myTurn = phase === 'play' && you === cur && !me?.bot;
   const hostName = seats[view.host]?.name ?? 'The host';
   const isHost = you !== null && you === view.host && phase !== 'closed';
-  const L = useMemo(() => (kind === 'desktop' ? desktopLayout(n - 1) : phoneLayout(n - 1)), [kind, n]);
+  const handLen = seats.find(s => s.cards.length)?.cards.length ?? handSize(n);
+  const L = useMemo(() => (kind === 'desktop' ? desktopLayout(n - 1, handLen) : phoneLayout(n - 1)), [kind, n, handLen]);
+  // 6 to 8 players: smaller rows, so cards you need to read open big in the middle instead.
+  const bigTable = kind === 'desktop' && (n > 5 || handLen === 3);
   const opp = useMemo(() => Array.from({ length: Math.max(0, n - 1) }, (_, k) => (base + 1 + k) % n), [n, base]);
   const gem = (s: number) => GEM_COLOR[seats[s]?.gem ?? 'topaz'];
 
@@ -155,7 +158,7 @@ export default function Table({ code, view, send, now, fx, kind, onShare, onHost
     center = (
       <div className="pl-center-box" style={{ left: L.center.x, top: L.center.y, width: L.center.w, height: L.center.h }}>
         <span className="count">{secsLeft ?? ''}</span>
-        <span className="small">{me && !me.ready ? 'Memorise your four cards' : 'Waiting for everyone to memorise'}</span>
+        <span className="small">{me && !me.ready ? `Memorise your ${handLen === 3 ? 'three' : 'four'} cards` : 'Waiting for everyone to memorise'}</span>
       </div>
     );
   } else if (phase === 'end') {
@@ -192,6 +195,44 @@ export default function Table({ code, view, send, now, fx, kind, onShare, onHost
           : <span className="pl-empty" style={{ left: L.discard.x, top: L.discard.y, width: L.discard.w, height: hOf(L.discard) }} />}
         <span className="pl-label" style={{ left: L.discard.x + L.discard.w / 2, top: L.pileLabelY }}>THROWN</span>
       </>
+    );
+  }
+
+  // ---- Big tables: cards you need to read open large in the middle ----
+  let spotlight: ReactNode = null;
+  if (bigTable && phase === 'play' && peek && you === cur && step === 'pJ' && seats[peek.target]) {
+    const t = seats[peek.target];
+    spotlight = (
+      <div className="pl-spot" role="region" aria-label={`${t.name}'s cards`} style={{ ['--gem' as string]: gem(peek.target) } as CSSProperties}>
+        <span className="cap">ONLY YOU CAN SEE {t.name.toUpperCase()}’S CARDS</span>
+        <div className="row">
+          {t.cards.map((c, i) => <div key={i} className="pl-spot-card">{face(c, 96)}<span className="pl-pos">{i + 1}</span></div>)}
+        </div>
+      </div>
+    );
+  }
+  if (bigTable && phase === 'end' && view.endReason !== 'abandoned') {
+    // Everyone's cards and totals, lowest first, big enough to read.
+    const ranked = seats.map((s, i) => ({ s, i })).sort((a, b) => (a.s.total ?? 0) - (b.s.total ?? 0));
+    const best = ranked[0]?.s.total ?? 0;
+    const tops = ranked.filter(r => r.s.total === best).map(r => (r.i === you ? 'You' : r.s.name));
+    center = null;
+    spotlight = (
+      <div className="pl-board" role="status">
+        <h3>{tops.length === 1 ? (tops[0] === 'You' ? 'You win!' : `${tops[0]} wins!`) : `${tops.join(' & ')} tie!`}</h3>
+        <p>Lowest total wins{view.endReason === 'host' ? '. The host ended this game early.' : '.'}</p>
+        <div className="grid">
+          {ranked.map(({ s, i }, k) => (
+            <div key={s.id} className={`row${winners.has(i) ? ' best' : ''}`}>
+              <span className="rk">{k + 1}</span>
+              <span className="av" style={{ ['--gem' as string]: gem(i) } as CSSProperties}>{s.name[0]?.toUpperCase()}</span>
+              <span className="nm">{i === you ? 'You' : s.name}</span>
+              <span className="cs">{s.cards.map((c, j) => <span key={j} className="mc">{face(c, 44)}</span>)}</span>
+              <b className="tot">{s.total}</b>
+            </div>
+          ))}
+        </div>
+      </div>
     );
   }
 
@@ -324,6 +365,7 @@ export default function Table({ code, view, send, now, fx, kind, onShare, onHost
       {handEls}
       {held}
       <Flights flights={motion.flights} landed={motion.landed} />
+      {spotlight}
       {motion.stamp && <div key={motion.stamp.key} className="pl-stamp" style={{ top: L.stampY }} aria-hidden="true">{motion.stamp.text}</div>}
       {view.pausedUntil && <div className="pl-status" role="status">PAUSED</div>}
       {plate}

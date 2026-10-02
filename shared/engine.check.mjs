@@ -1,6 +1,6 @@
 // Stress test for the game engine: node shared/engine.check.mjs
 // Plays hundreds of random games (with missed turns and bots) and checks the rules after every step.
-import { newGame, join, apply, tick, nextWake, viewFor, setConnected, isPower, HAND, GEMS, IDLE_END_MS, ROOM_IDLE_CLOSE_MS } from './engine.ts';
+import { newGame, join, apply, tick, nextWake, viewFor, setConnected, isPower, HAND, GEMS, IDLE_END_MS, ROOM_IDLE_CLOSE_MS, handSize, BIG_TABLE_PHONE } from './engine.ts';
 
 function rngFrom(seed) { // mulberry32: repeatable randomness
   return () => { seed |= 0; seed = (seed + 0x6D2B79F5) | 0; let t = Math.imul(seed ^ (seed >>> 15), 1 | seed); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
@@ -13,7 +13,7 @@ function checkInvariants(g) {
   const count = inHands + g.deck.length + g.discard.length + (g.drawn ? 1 : 0);
   if (g.phase !== 'lobby' && count !== 52) fail(`card count ${count}`);
   for (const s of g.seats) {
-    if (g.phase !== 'lobby' && s.cards.length !== HAND) fail('hand size');
+    if (g.phase !== 'lobby' && s.cards.length !== handSize(g.seats.length)) fail('hand size');
     if (s.cards.some(isPower)) fail('power card in a hand');
   }
   const tokens = g.seats.map(s => s.token);
@@ -34,14 +34,17 @@ function checkInvariants(g) {
 for (let n = 0; n < 300; n++) {
   const rng = rngFrom(1000 + n), g = newGame();
   let now = 1_000_000;
-  const players = 3 + (n % 3);
-  for (let i = 0; i < players; i++) { const r = join(g, `P${i}`, GEMS[(i + n) % 5], rng, now); if ('error' in r) fail(r.error); }
+  const players = 3 + (n % 6); // 3 to 8: games of 6 or more are big tables, on wide screens
+  for (let i = 0; i < players; i++) {
+    if (i === 1 && players > 5 && apply(g, 0, { t: 'size', size: 'big' }, now, rng) !== null) fail('could not make a big table');
+    const r = join(g, `P${i}`, GEMS[(i + n) % GEMS.length], rng, now, true); if ('error' in r) fail(r.error);
+  }
   if (apply(g, 1, { t: 'start' }, now, rng) === null) fail('a non-host could start');
   if (apply(g, 0, { t: 'start' }, now, rng) !== null) fail('host could not start');
   checkInvariants(g);
   // Memorise: everyone rearranges a little; one player never presses ready, so the timer finishes it.
   g.seats.forEach((s, i) => {
-    if (apply(g, i, { t: 'arrange', a: 0, b: 3 }, now, rng)) fail('arrange failed');
+    if (apply(g, i, { t: 'arrange', a: 0, b: s.cards.length - 1 }, now, rng)) fail('arrange failed');
     if (i !== players - 1) apply(g, i, { t: 'ready' }, now, rng);
   });
   if (g.phase !== 'memorize') fail('play started before everyone was ready');
@@ -66,8 +69,8 @@ for (let n = 0; n < 300; n++) {
     act({ t: 'draw' });
     const other = (cur + 1 + Math.floor(rng() * (players - 1))) % players;
     switch (g.step) {
-      case 'choose': act(rng() < 0.6 ? { t: 'place', i: Math.floor(rng() * HAND) } : { t: 'throw' }); break;
-      case 'p7': stats.powers++; act({ t: 'swap7', mine: Math.floor(rng() * HAND), seat: other, i: Math.floor(rng() * HAND) }); break;
+      case 'choose': act(rng() < 0.6 ? { t: 'place', i: Math.floor(rng() * me.cards.length) } : { t: 'throw' }); break;
+      case 'p7': stats.powers++; act({ t: 'swap7', mine: Math.floor(rng() * me.cards.length), seat: other, i: Math.floor(rng() * g.seats[other].cards.length) }); break;
       case 'pQ': stats.powers++; act({ t: 'shuffleQ', seat: other }); break;
       case 'pK': stats.powers++; act({ t: 'look' }); act({ t: 'done' }); break;
       case 'pJ': stats.powers++; act({ t: 'peekJ', seat: other }); act({ t: 'done' }); break;
@@ -249,5 +252,36 @@ function started(players, seed) {
   for (const nm of ['A', 'B', 'C', 'D']) join(g4, nm, undefined, rng, now);
   apply(g4, 0, { t: 'start', fill: true }, now, rng);
   if (g4.seats.some(s => s.robot)) fail('start with bots added bots to a table that had enough players');
+}
+{
+  // Big tables: up to 8, laptops and desktops only, 3 cards each when more than 5 play.
+  const rng = rngFrom(77), now = 20_000_000;
+  const g = newGame();
+  join(g, 'Laptop', undefined, rng, now, true);
+  join(g, 'Phone', undefined, rng, now, false);
+  if (apply(g, 1, { t: 'size', size: 'big' }, now, rng) === null) fail('a non-host changed the table size');
+  if (apply(g, 0, { t: 'size', size: 'big' }, now, rng) === null) fail('a big table was made with someone on a phone');
+  apply(g, 0, { t: 'kick', seat: 1 }, now, rng);
+  if (apply(g, 0, { t: 'size', size: 'big' }, now, rng) !== null || g.size !== 'big') fail('could not make a big table');
+  const r = join(g, 'Phone', undefined, rng, now, false);
+  if (!('error' in r) || r.error !== BIG_TABLE_PHONE) fail('a phone sat at a big table');
+  for (let i = 0; i < 7; i++) if (apply(g, 0, { t: 'addBot' }, now, rng) !== null) fail(`bot ${i + 1} could not sit at a big table`);
+  if (g.seats.length !== 8 || apply(g, 0, { t: 'addBot' }, now, rng) === null) fail('a big table took more than 8');
+  if (new Set(g.seats.map(s => s.gem)).size !== 8 || new Set(g.seats.map(s => s.name)).size !== 8) fail('colours or names repeat at 8 players');
+  if (apply(g, 0, { t: 'size', size: 'small' }, now, rng) === null) fail('went back to a normal table with 8 seated');
+  if (viewFor(g, 0).limit !== 8) fail('view does not show the big table');
+  apply(g, 0, { t: 'start' }, now, rng);
+  if (g.seats.some(s => s.cards.length !== 3) || g.deck.length !== 28) fail(`8 players: ${g.seats.map(s => s.cards.length)} cards, ${g.deck.length} in the pile`);
+  checkInvariants(g);
+  // Six players also get three each; five still get four.
+  const six = newGame(); join(six, 'A', undefined, rng, now, true); apply(six, 0, { t: 'size', size: 'big' }, now, rng);
+  for (let i = 0; i < 5; i++) apply(six, 0, { t: 'addBot' }, now, rng);
+  apply(six, 0, { t: 'start' }, now, rng);
+  if (six.seats.some(s => s.cards.length !== 3)) fail('six players should get three cards');
+  const five = newGame(); join(five, 'A', undefined, rng, now, false);
+  for (let i = 0; i < 4; i++) apply(five, 0, { t: 'addBot' }, now, rng);
+  if (apply(five, 0, { t: 'addBot' }, now, rng) === null) fail('a normal table took a 6th player');
+  apply(five, 0, { t: 'start' }, now, rng);
+  if (five.seats.some(s => s.cards.length !== 4)) fail('five players should get four cards');
 }
 console.log('All checks passed.', stats);

@@ -89,7 +89,8 @@ export function useTableMotion(ctx: Ctx) {
         case 'deal': {
           resetMarks = true;
           const n = view.seats.length;
-          for (let r = 0; r < 4; r++) for (let s = 0; s < n; s++) {
+          const hand = view.seats[0]?.cards.length ?? 4;
+          for (let r = 0; r < hand; r++) for (let s = 0; s < n; s++) {
             const to = cardBox(s, r);
             const c = view.seats[s]?.cards[r];
             if (to) add({ from: draw, to, a: BACK, b: c ? faceOf(c) : undefined, delay: (r * n + s) * 70, dur: 420, arc: 0, hide: [`${s}:${r}`] });
@@ -137,14 +138,15 @@ export function useTableMotion(ctx: Ctx) {
           break;
         }
         case 'shuffle': {
-          const boxes = [0, 1, 2, 3].map(i => cardBox(f.seat, i));
+          const count = view.seats[f.seat]?.cards.length ?? 4;
+          const boxes = Array.from({ length: count }, (_, i) => cardBox(f.seat, i));
           if (boxes.some(b => !b)) break;
           const bs = boxes as Box[];
-          const cx = bs.reduce((a, b) => a + b.x + b.w / 2, 0) / 4, cy = bs.reduce((a, b) => a + b.y + hOf(b) / 2, 0) / 4;
-          const to = [2, 0, 3, 1]; // any order will do: the cards are face down
+          const cx = bs.reduce((a, b) => a + b.x + b.w / 2, 0) / count, cy = bs.reduce((a, b) => a + b.y + hOf(b) / 2, 0) / count;
+          const to = bs.map((_, i) => (i + 2) % count); // any order will do: the cards are face down
           const color = gem(mover);
           bs.forEach((from, i) => add({ from, to: bs[to[i]], a: BACK, delay: seq + i * 35, dur: 1000, arc: 0, gather: { x: cx, y: cy }, hide: [`${f.seat}:${to[i]}`], glow: { key: `${f.seat}:${to[i]}`, color } }));
-          if (f.seat === you) { marked.push(0, 1, 2, 3); if (mover !== you) buzz = true; }
+          if (f.seat === you) { marked.push(...bs.map((_, i) => i)); if (mover !== you) buzz = true; }
           seq += 860;
           break;
         }

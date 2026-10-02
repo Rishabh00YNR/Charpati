@@ -4,13 +4,14 @@ import { useEffect, useState, type CSSProperties, type FormEvent } from 'react';
 import { useRouter } from 'next/navigation';
 import { BOT_NAMES, GEMS, type Gem } from '@/shared/engine';
 import { GEM_COLOR, cleanCode, isCode, loadProfile, newCode, roomInfo, saveProfile, type Profile } from '@/lib/rooms';
+import { layoutKind } from './layout';
 
 // The Play screen: choose how to play, then one short step. Steps live in the address (#name,
 // #solo, #join) so the phone's back button works.
 type Step = 'home' | 'name' | 'solo' | 'join';
 type After = 'friends' | 'solo' | null;
 
-const GEM_NAME: Record<Gem, string> = { topaz: 'Topaz', ruby: 'Ruby', sapphire: 'Sapphire', emerald: 'Emerald', amethyst: 'Amethyst' };
+const GEM_NAME: Record<Gem, string> = { topaz: 'Topaz', ruby: 'Ruby', sapphire: 'Sapphire', emerald: 'Emerald', amethyst: 'Amethyst', turquoise: 'Turquoise', rose: 'Rose', pearl: 'Pearl' };
 const PACES = [{ sec: 60, name: 'Relaxed' }, { sec: 30, name: 'Normal' }, { sec: 15, name: 'Quick' }];
 const stepFromHash = (): Step => {
   const h = typeof window === 'undefined' ? '' : window.location.hash.slice(1);
@@ -34,14 +35,18 @@ export default function PlayHome() {
   const [code, setCode] = useState('');
   const [err, setErr] = useState('');
   const [busy, setBusy] = useState(false);
+  const [wide, setWide] = useState(false); // laptops and desktops can play at bigger tables
 
   useEffect(() => {
     const p = loadProfile();
     if (p) { setProfile(p); setName(p.name); setGem(p.gem); }
     const sync = () => { setStep(stepFromHash()); setErr(''); window.scrollTo(0, 0); };
     sync();
+    const size = () => setWide(layoutKind(window.innerWidth, window.innerHeight) === 'desktop');
+    size();
     window.addEventListener('hashchange', sync);
-    return () => window.removeEventListener('hashchange', sync);
+    window.addEventListener('resize', size);
+    return () => { window.removeEventListener('hashchange', sync); window.removeEventListener('resize', size); };
   }, []);
 
   const go = (s: Step) => {
@@ -84,6 +89,7 @@ export default function PlayHome() {
     if (!info) return setErr('Can’t reach the game server right now. Check your connection and try again.');
     if (info.phase === 'lobby' && info.players === 0) return setErr(`There’s no table called ${c}. Check the code with your friend.`);
     if (info.phase === 'closed') return setErr(`Table ${c} has closed. Make a new table instead.`);
+    if (info.size === 'big' && !wide) return setErr(`Table ${c} is a big table for laptops and desktops. Open the link on a computer to join.`);
     router.push(`/play/${c}`);
   }
 
@@ -126,7 +132,7 @@ export default function PlayHome() {
         <p className="fl-sub">Just you against the computer. No invites, no waiting.</p>
         <span className="fl-caps fl-gap">HOW MANY BOTS?</span>
         <div className="fl-seg" role="radiogroup" aria-label="Number of bots">
-          {[2, 3, 4].map(b => (
+          {(wide ? [2, 3, 4, 5, 6, 7] : [2, 3, 4]).map(b => (
             <button key={b} type="button" role="radio" aria-checked={bots === b} className={bots === b ? 'on' : ''} onClick={() => setBots(b)}><b>{b}</b><small>bots</small></button>
           ))}
         </div>
@@ -200,7 +206,7 @@ export default function PlayHome() {
       </div>
       <div className="fl-row fl-bottom">
         <a className="fl-link" href="/#play">How to play</a>
-        <span className="fl-small">3 to 5 players · 10 min</span>
+        <span className="fl-small">{wide ? '3 to 8 players' : '3 to 5 players'} · 10 min</span>
       </div>
     </main>
   );

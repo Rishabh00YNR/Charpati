@@ -106,7 +106,45 @@ const DESK: Record<'TL' | 'T' | 'TR' | 'L' | 'R', SeatSpot> = {
 };
 const DESK_ORDER: Record<number, (keyof typeof DESK)[]> = { 1: ['T'], 2: ['TL', 'TR'], 3: ['L', 'T', 'R'], 4: ['L', 'TL', 'TR', 'R'] };
 
-export function desktopLayout(others: number): Layout {
+// ---- Big tables (6 to 8 players, 3 cards each): seats all the way round the rail -----------
+const row3 = (x: number, y: number) => [0, 1, 2].map(i => ({ x: x + i * 68, y, w: 60 }));
+const BIG_HELD: Box = { x: 776, y: 280, w: 104, r: 3 }; // one spot in the middle for whoever is deciding
+const BIG_HELD_LABEL = { x: 828, y: 436 };
+const big = (mx: number, my: number, av: SeatSpot['av'], name: SeatSpot['name']): SeatSpot => ({
+  mat: { x: mx, y: my, w: 208, h: 96 }, av, name, cards: row3(mx + 6, my + 6), held: BIG_HELD, heldLabel: BIG_HELD_LABEL,
+});
+const BIG: Record<'BL' | 'L' | 'TL' | 'T' | 'TR' | 'R' | 'BR', SeatSpot> = {
+  TL: big(384, 168, { x: 488, y: 108, s: 48 }, { x: 522, y: 108, side: 'right' }),
+  T: big(616, 168, { x: 720, y: 108, s: 48 }, { x: 754, y: 108, side: 'right' }),
+  TR: big(848, 168, { x: 952, y: 108, s: 48 }, { x: 986, y: 108, side: 'right' }),
+  L: big(206, 300, { x: 124, y: 348, s: 48 }, { x: 124, y: 382, side: 'below' }),
+  R: big(1026, 300, { x: 1316, y: 348, s: 48 }, { x: 1316, y: 382, side: 'below' }),
+  BL: big(260, 470, { x: 164, y: 545, s: 48 }, { x: 164, y: 579, side: 'below' }),
+  BR: big(972, 470, { x: 1276, y: 545, s: 48 }, { x: 1276, y: 579, side: 'below' }),
+};
+const BIG_ORDER: Record<number, (keyof typeof BIG)[]> = { 5: ['L', 'TL', 'T', 'TR', 'R'], 6: ['BL', 'L', 'TL', 'TR', 'R', 'BR'], 7: ['BL', 'L', 'TL', 'T', 'TR', 'R', 'BR'] };
+
+export function desktopLayout(others: number, hand = 4): Layout {
+  if (others >= 5 || hand === 3) {
+    const order = BIG_ORDER[Math.min(7, Math.max(5, others))].slice(0, others);
+    return {
+      kind: 'desktop', W: 1440, H: 900,
+      felt: { x: 170, y: 150, w: 1100, h: 540, radius: 270 },
+      seats: order.map(s => BIG[s]),
+      hand: [{ x: 552, y: 524, w: 100, r: -3 }, { x: 670, y: 518, w: 100 }, { x: 788, y: 524, w: 100, r: 3 }],
+      mine: BIG_HELD,
+      mineLabel: BIG_HELD_LABEL,
+      draw: { x: 560, y: 290, w: 80 },
+      discard: { x: 664, y: 290, w: 80, r: 6 },
+      pileLabelY: 412,
+      center: { x: 540, y: 282, w: 360, h: 170 },
+      ticker: { x: 720, y: 22, w: 600 },
+      plate: { x: 570, y: 714, w: 300 },
+      barY: 780,
+      btnsY: 818,
+      stampY: 220,
+    };
+  }
   const slots = DESK_ORDER[Math.min(4, Math.max(1, others))].slice(0, others);
   return {
     kind: 'desktop', W: 1440, H: 900,

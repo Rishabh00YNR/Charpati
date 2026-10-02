@@ -56,7 +56,9 @@ export default function Room({ code }: { code: string }) {
     if (p) setProfile(p);
     const q = new URLSearchParams(window.location.search), go = q.get('go');
     if (p && (go === 'host' || go === 'bots')) setAuto({ go });
-    if (p && go === 'solo') setAuto({ go: 'solo', bots: Math.min(4, Math.max(2, Number(q.get('bots')) || 2)), sec: Number(q.get('t')) || 30 });
+    // Practice: up to 4 bots on a phone, up to 7 on a laptop (a big table).
+    const most = layoutKind(window.innerWidth, window.innerHeight) === 'desktop' ? 7 : 4;
+    if (p && go === 'solo') setAuto({ go: 'solo', bots: Math.min(most, Math.max(2, Number(q.get('bots')) || 2)), sec: Number(q.get('t')) || 30 });
     if (go) window.history.replaceState(null, '', window.location.pathname); // a reload or a shared link shouldn't repeat it
   }, []);
 
@@ -103,15 +105,16 @@ export default function Room({ code }: { code: string }) {
     const p = loadProfile();
     if (view.you !== null || view.phase !== 'lobby' || !p) { setAuto(null); return; }
     // The room handles messages in order, so these arrive after the join, with this phone as host.
-    send({ t: 'join', name: p.name, gem: p.gem });
+    send({ t: 'join', name: p.name, gem: p.gem, wide: kind === 'desktop' });
     if (auto.go === 'bots') { send({ t: 'addBot' }); send({ t: 'addBot' }); }
     if (auto.go === 'solo') {
+      if (auto.bots > 4) send({ t: 'size', size: 'big' });
       for (let i = 0; i < auto.bots; i++) send({ t: 'addBot' });
       send({ t: 'timer', sec: auto.sec });
       send({ t: 'start' });
     }
     setAuto('sent');
-  }, [auto, view, send]);
+  }, [auto, view, send, kind]);
 
   const inviteUrl = typeof window === 'undefined' ? `/play/${code}` : `${window.location.origin}/play/${code}`;
   async function copy() {
@@ -133,7 +136,7 @@ export default function Room({ code }: { code: string }) {
   function sit(name: string, gem: Gem) {
     saveProfile({ name, gem });
     setProfile({ name, gem });
-    send({ t: 'join', name, gem });
+    send({ t: 'join', name, gem, wide: kind === 'desktop' });
   }
 
   const isHost = !!view && view.you !== null && view.you === view.host && view.phase !== 'closed';
@@ -151,11 +154,28 @@ export default function Room({ code }: { code: string }) {
     );
   }
 
+  // A big table (6 to 8) is drawn for wide screens only.
+  if (view.size === 'big' && kind === 'phone' && view.phase !== 'closed') {
+    const seated = view.you !== null;
+    return (
+      <main className="fl-page center" aria-live="polite">
+        <span className="fl-word sm">Charpati</span>
+        <h1 className="fl-h1 sm">{seated ? 'Make your window wider' : 'This is a big table'}</h1>
+        <p className="fl-sub">{seated
+          ? 'Tables of 6 to 8 players need a laptop or desktop screen. Widen this window to keep playing.'
+          : 'Tables of 6 to 8 players are for laptops and desktops. Open this link on a computer to join or watch.'}</p>
+        {!seated && <button type="button" className="btn big fl-cta" onClick={copy}>Copy the link</button>}
+        {!seated && <a className="btn big ghost fl-cta" href="/play">Make your own table</a>}
+        {toastEl}
+      </main>
+    );
+  }
+
   if (view.phase === 'lobby') {
     return (
       <>
         <Lobby code={code} view={view} send={send} inviteUrl={inviteUrl} onShare={share} onCopy={copy} onLeave={leave}
-          defaultName={profile.name} defaultGem={profile.gem} onSit={sit} />
+          defaultName={profile.name} defaultGem={profile.gem} onSit={sit} wide={kind === 'desktop'} />
         {!online && <div className="pl-status fixed" role="status">Reconnecting…</div>}
         {toastEl}
       </>

@@ -14,7 +14,7 @@ export const newCode = () => Array.from(crypto.getRandomValues(new Uint32Array(4
 export const cleanCode = (s: string) => s.toUpperCase().split('').filter(c => CODE_CHARS.includes(c)).join('').slice(0, 6);
 export const isCode = (s: string) => /^[A-HJ-NP-Z2-9]{4,6}$/.test(s);
 
-export type RoomInfo = { phase: 'lobby' | 'memorize' | 'play' | 'end' | 'closed'; players: number; open: boolean };
+export type RoomInfo = { phase: 'lobby' | 'memorize' | 'play' | 'end' | 'closed'; players: number; open: boolean; size?: 'small' | 'big' };
 export async function roomInfo(code: string): Promise<RoomInfo | null> {
   try {
     const res = await fetch(`${roomsHttp}/parties/room/${code}`, { cache: 'no-store' });
@@ -34,4 +34,4 @@ export const loadSeatToken = (code: string) => read<string>(`charpati:seat:${cod
 export const saveSeatToken = (code: string, token: string) => write(`charpati:seat:${code}`, token);
 export const clearSeatToken = (code: string) => { try { localStorage.removeItem(`charpati:seat:${code}`); } catch { /* ignore */ } };
 
-export const GEM_COLOR: Record<Gem, string> = { topaz: '#F0B53A', ruby: '#E8503F', sapphire: '#4F8DF5', emerald: '#3FBF8A', amethyst: '#C39BFF' };
+export const GEM_COLOR: Record<Gem, string> = { topaz: '#F0B53A', ruby: '#E8503F', sapphire: '#4F8DF5', emerald: '#3FBF8A', amethyst: '#C39BFF', turquoise: '#3EC7D6', rose: '#F27BB3', pearl: '#DCD6C8' };

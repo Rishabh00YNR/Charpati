@@ -5,7 +5,7 @@
 
 import { useEffect, useRef, useState, type CSSProperties, type FormEvent, type ReactNode } from 'react';
 import QRCode from 'qrcode';
-import { GEMS, MAX_SEATS, MIN_SEATS, type Gem, type Move, type SeatView, type View } from '@/shared/engine';
+import { GEMS, MIN_SEATS, handSize, type Gem, type Move, type SeatView, type View } from '@/shared/engine';
 import { GEM_COLOR } from '@/lib/rooms';
 
 type Props = {
@@ -19,9 +19,10 @@ type Props = {
   defaultName: string;
   defaultGem: Gem;
   onSit: (name: string, gem: Gem) => void;
+  wide: boolean; // on a laptop or desktop: can host a big table
 };
 
-const GEM_NAME: Record<Gem, string> = { topaz: 'Topaz', ruby: 'Ruby', sapphire: 'Sapphire', emerald: 'Emerald', amethyst: 'Amethyst' };
+const GEM_NAME: Record<Gem, string> = { topaz: 'Topaz', ruby: 'Ruby', sapphire: 'Sapphire', emerald: 'Emerald', amethyst: 'Amethyst', turquoise: 'Turquoise', rose: 'Rose', pearl: 'Pearl' };
 const PACES = [{ sec: 60, name: 'Relaxed' }, { sec: 30, name: 'Normal' }, { sec: 15, name: 'Quick' }];
 
 export default function Lobby(p: Props) {
@@ -29,7 +30,7 @@ export default function Lobby(p: Props) {
   const [watching, setWatching] = useState(false);
   if (view.you !== null && view.you === view.host) return <HostFlow {...p} />;
   if (view.you !== null) return <Waiting {...p} />;
-  if (watching || view.seats.length >= MAX_SEATS) return <Watching {...p} onSeat={view.seats.length < MAX_SEATS ? () => setWatching(false) : undefined} />;
+  if (watching || view.seats.length >= view.limit) return <Watching {...p} onSeat={view.seats.length < view.limit ? () => setWatching(false) : undefined} />;
   return <GuestJoin {...p} onWatch={() => setWatching(true)} />;
 }
 
@@ -96,10 +97,10 @@ function Seg({ label, options, value, onPick }: { label: string; options: { valu
   );
 }
 
-function SeatsStrip({ seats, you, host, fresh }: { seats: SeatView[]; you: number | null; host: number; fresh?: string | null }) {
+function SeatsStrip({ seats, you, host, fresh, limit }: { seats: SeatView[]; you: number | null; host: number; fresh?: string | null; limit: number }) {
   return (
-    <div className="fl-strip">
-      {Array.from({ length: MAX_SEATS }, (_, i) => {
+    <div className={`fl-strip${limit > 5 ? ' wide' : ''}`}>
+      {Array.from({ length: limit }, (_, i) => {
         const s = seats[i];
         return (
           <div key={i} className="slot">
@@ -121,14 +122,14 @@ function TablePreview({ seats, you }: { seats: SeatView[]; you: number }) {
     <div className="fl-mini" aria-label={`${n} players at the table`}>
       <div className="felt" />
       <div className="mfan" aria-hidden="true"><span /><span /><span /></div>
-      <span className="cap">4 CARDS EACH</span>
+      <span className="cap">{handSize(n)} CARDS EACH</span>
       {seats.map((s, i) => {
         const j = (i - you + n) % n, a = ((90 + (j * 360) / n) * Math.PI) / 180;
-        const x = 175 + 136 * Math.cos(a), y = 84 + 60 * Math.sin(a);
+        const x = 175 + (n > 5 ? 150 : 136) * Math.cos(a), y = 84 + (n > 5 ? 66 : 60) * Math.sin(a);
         return (
           <div key={s.id} className="seat" style={{ left: x, top: y }}>
             <Av seat={s} size={36} />
-            <span className="pill">{i === you ? 'You' : s.robot ? `${s.name} · bot` : s.name}</span>
+            <span className="pill">{i === you ? 'You' : s.robot && n <= 5 ? `${s.name} · bot` : s.name}</span>
           </div>
         );
       })}
@@ -137,7 +138,7 @@ function TablePreview({ seats, you }: { seats: SeatView[]; you: number }) {
 }
 
 const TIPS = [
-  { t: 'Remember your four', b: 'You see your four cards once, then they go face down. Keep them in your head.' },
+  { t: 'Remember your cards', b: 'You see your cards once, then they go face down. Keep them in your head. (4 cards each, or 3 when 6 or more play.)' },
   { t: 'Swap or throw', b: 'On your turn, draw a card. Swap it with one of yours, or throw it away.' },
   { t: 'Power cards', b: '7 swaps blind, J peeks at a player, Q shuffles a player, K shows you your own cards. You must use them.' },
   { t: 'Lowest total wins', b: 'When the draw pile runs out, everyone shows their cards. Ace counts as 1. Lowest total wins.' },
@@ -201,7 +202,7 @@ function useFreshArrival(seats: SeatView[]) {
 // ---- The host: Invite → Seats → Start ----------------------------------------------------------
 type Step = 'invite' | 'seats' | 'start';
 
-function HostFlow({ code, view, send, inviteUrl, onShare, onCopy }: Props) {
+function HostFlow({ code, view, send, inviteUrl, onShare, onCopy, wide }: Props) {
   const key = `charpati:step:${code}`;
   const [step, setStepState] = useState<Step>(() => {
     try { const s = sessionStorage.getItem(key); if (s === 'invite' || s === 'seats' || s === 'start') return s; } catch { /* ignore */ }
@@ -228,10 +229,10 @@ function HostFlow({ code, view, send, inviteUrl, onShare, onCopy }: Props) {
         </div>
         <section className="fl-panel" aria-label="At the table">
           <div className="fl-row">
-            <span className="fl-caps">AT THE TABLE · {n} OF {MAX_SEATS}</span>
+            <span className="fl-caps">AT THE TABLE · {n} OF {view.limit}</span>
             {fresh && <span className="fl-live"><i />{fresh} just joined</span>}
           </div>
-          <SeatsStrip seats={view.seats} you={you} host={view.host} fresh={fresh} />
+          <SeatsStrip seats={view.seats} you={you} host={view.host} fresh={fresh} limit={view.limit} />
         </section>
         <button type="button" className="btn big outline fl-cta" onClick={() => setStep('seats')}>Next: fill the seats<Icon d={I.next} size={18} w={2.2} /></button>
       </Page>
@@ -244,12 +245,20 @@ function HostFlow({ code, view, send, inviteUrl, onShare, onCopy }: Props) {
         <Top onBack={() => setStep('invite')} right={<CodeChip code={code} compact />}><Steps at={1} /></Top>
         <h1 className="fl-h1">Who’s playing?</h1>
         <p className="fl-sub">Friends fill seats as they join. Add bots for the rest.</p>
+        {wide && (
+          <div className="fl-size">
+            <span className="fl-caps fl-gap">TABLE SIZE</span>
+            <Seg label="Table size" value={view.limit} onPick={v => send({ t: 'size', size: v > 5 ? 'big' : 'small' })}
+              options={[{ value: 5, top: 'Up to 5', sub: 'Any device' }, { value: 8, top: 'Up to 8', sub: 'Laptops only' }]} />
+            {view.limit > 5 && <p className="fl-hint">Friends need a laptop or desktop to join. With 6 or more players everyone gets 3 cards.</p>}
+          </div>
+        )}
         <div className="fl-row" style={{ marginTop: 18 }}>
           <span className="fl-caps">SEATS</span>
-          <span className="fl-count">{n} of {MAX_SEATS} taken</span>
+          <span className="fl-count">{n} of {view.limit} taken</span>
         </div>
         <div className="fl-seats">
-          {Array.from({ length: MAX_SEATS }, (_, i) => <SeatRow key={view.seats[i]?.id ?? `open${i}`} i={i} seat={view.seats[i]} you={you} send={send} canAdd={n < MAX_SEATS} />)}
+          {Array.from({ length: view.limit }, (_, i) => <SeatRow key={view.seats[i]?.id ?? `open${i}`} i={i} seat={view.seats[i]} you={you} send={send} canAdd={n < view.limit} />)}
         </div>
         <div className="fl-note">
           <span className={need ? 'i' : 'ok'}><Icon d={need ? I.info : I.check} size={18} w={2.2} /></span>
@@ -392,7 +401,7 @@ function GuestJoin({ code, view, defaultName, defaultGem, onSit, onWatch }: Prop
           <span className="title">{hostName}’s table</span>
           <div className="fl-stack">
             <span className="avs">{view.seats.map(s => <Av key={s.id} seat={s} size={32} />)}</span>
-            <span>{view.seats.length} of {MAX_SEATS} seats taken</span>
+            <span>{view.seats.length} of {view.limit} seats taken</span>
           </div>
           <span className="url">Table {code}</span>
         </div>
@@ -427,7 +436,7 @@ function Waiting({ code, view, onLeave }: Props) {
         <h1 className="fl-h1">You’re in, {me?.name}!</h1>
         <p className="fl-sub dots">Waiting for {hostName} to deal<i /><i /><i /></p>
       </div>
-      <section className="fl-panel"><SeatsStrip seats={view.seats} you={view.you} host={view.host} /></section>
+      <section className="fl-panel"><SeatsStrip seats={view.seats} you={view.you} host={view.host} limit={view.limit} /></section>
       <span className="fl-caps fl-gap">WHILE YOU WAIT</span>
       <Tips />
     </Page>
@@ -436,7 +445,7 @@ function Waiting({ code, view, onLeave }: Props) {
 
 function Watching({ code, view, onSeat }: Props & { onSeat?: () => void }) {
   const hostName = view.seats[view.host]?.name ?? 'The host';
-  const full = view.seats.length >= MAX_SEATS;
+  const full = view.seats.length >= view.limit;
   return (
     <Page label="Watching">
       <div className="fl-top brand"><span className="brand">Charpati</span><div className="end"><CodeChip code={code} /></div></div>
@@ -444,7 +453,7 @@ function Watching({ code, view, onSeat }: Props & { onSeat?: () => void }) {
         <h1 className="fl-h1">{full ? 'This table is full' : 'You’re watching'}</h1>
         <p className="fl-sub dots">{hostName} will deal soon<i /><i /><i /></p>
       </div>
-      <section className="fl-panel"><SeatsStrip seats={view.seats} you={null} host={view.host} /></section>
+      <section className="fl-panel"><SeatsStrip seats={view.seats} you={null} host={view.host} limit={view.limit} /></section>
       {onSeat && <button type="button" className="btn big fl-cta" onClick={onSeat}>Take a seat instead</button>}
       {full && <a className="btn big ghost fl-cta" href="/play">Make your own table</a>}
       <span className="fl-caps fl-gap">WHILE YOU WAIT</span>

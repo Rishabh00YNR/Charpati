@@ -5,15 +5,20 @@
 export type Suit = '♠' | '♥' | '♦' | '♣';
 export type Rank = 'A' | '2' | '3' | '4' | '5' | '6' | '7' | '8' | '9' | '10' | 'J' | 'Q' | 'K';
 export type Card = { r: Rank; s: Suit };
-export type Gem = 'topaz' | 'ruby' | 'sapphire' | 'emerald' | 'amethyst';
+export type Gem = 'topaz' | 'ruby' | 'sapphire' | 'emerald' | 'amethyst' | 'turquoise' | 'rose' | 'pearl';
 export type PowerRank = '7' | 'K' | 'Q' | 'J';
 
 export const RANKS: Rank[] = ['A', '2', '3', '4', '5', '6', '7', '8', '9', '10', 'J', 'Q', 'K'];
 export const SUITS: Suit[] = ['♠', '♥', '♦', '♣'];
-export const GEMS: Gem[] = ['topaz', 'ruby', 'sapphire', 'emerald', 'amethyst'];
-export const HAND = 4;
+export const GEMS: Gem[] = ['topaz', 'ruby', 'sapphire', 'emerald', 'amethyst', 'turquoise', 'rose', 'pearl'];
+export const HAND = 4; // cards each at a table of up to 5
 export const MIN_SEATS = 3;
-export const MAX_SEATS = 5;
+// Up to 5 players on any device; a big table seats up to 8 and is for laptops and desktops only.
+export type TableSize = 'small' | 'big';
+export const SEAT_LIMIT: Record<TableSize, number> = { small: 5, big: 8 };
+export const MAX_SEATS = SEAT_LIMIT.big;
+// With 6 to 8 players everyone gets 3 cards instead of 4. Everything else plays the same.
+export const handSize = (players: number) => (players > SEAT_LIMIT.small ? 3 : HAND);
 export const TIMER = { min: 15, max: 120, step: 5, default: 30 }; // seconds per turn; the host can change it
 export const MEMO_SEC = 45; // time everyone gets to memorise their cards
 export const MISSES_FOR_BOT = 3; // missed turns in a row before a bot takes the seat
@@ -53,9 +58,10 @@ export type Seat = {
   bot: boolean;
   kicked?: boolean; // removed by the host mid-game: a bot plays out their cards; dropped before the next game
   robot?: boolean; // a bot the host added to fill a seat (never a person); stays for rematches
+  wide?: boolean; // joined on a laptop or desktop (a big table needs one); bots count as wide
 };
 // Names for bots the host adds. Up to 12 characters, like player names.
-export const BOT_NAMES = ['Alex', 'Sam', 'Max', 'Leo', 'Mia', 'Zoe'];
+export const BOT_NAMES = ['Alex', 'Sam', 'Max', 'Leo', 'Mia', 'Zoe', 'Kai', 'Ivy'];
 export type Step = 'draw' | 'choose' | 'p7' | 'pK' | 'pQ' | 'pJ';
 export type LogEntry = { t: string; seat: number | null };
 // What just happened, so phones can animate it. Cleared after every broadcast.
@@ -71,6 +77,7 @@ export type Fx =
 
 export type Game = {
   phase: 'lobby' | 'memorize' | 'play' | 'end' | 'closed';
+  size: TableSize; // up to 5 seats, or up to 8 on wide screens only
   seats: Seat[];
   deck: Card[];
   discard: Card[];
@@ -91,7 +98,7 @@ export type Game = {
 };
 
 export type Move =
-  | { t: 'join'; name: string; gem?: Gem }
+  | { t: 'join'; name: string; gem?: Gem; wide?: boolean }
   | { t: 'leave' }
   | { t: 'gem'; gem: Gem }
   | { t: 'timer'; sec: number }
@@ -111,6 +118,7 @@ export type Move =
   // Host only
   | { t: 'kick'; seat: number; id?: string } // id guards against removing the wrong person if seats just shifted
   | { t: 'addBot' }
+  | { t: 'size'; size: TableSize }
   | { t: 'renameBot'; seat: number; id: string; name: string }
   | { t: 'endGame' };
 
@@ -127,7 +135,7 @@ const randomId = (rng: Rng, n = 24) => Array.from({ length: n }, () => 'abcdefgh
 
 export function newGame(): Game {
   return {
-    phase: 'lobby', seats: [], deck: [], discard: [], starter: 0, cur: 0, step: 'draw', drawn: null, peek: null,
+    phase: 'lobby', size: 'small', seats: [], deck: [], discard: [], starter: 0, cur: 0, step: 'draw', drawn: null, peek: null,
     timerSec: TIMER.default, deadline: null, botAt: null, idleSince: null, endReason: null, lastActivity: 0, round: 0, log: [], fx: [],
   };
 }
@@ -196,15 +204,20 @@ function log(g: Game, t: string, seat: number | null = null) {
   if (g.log.length > 60) g.log.shift();
 }
 
-export function join(g: Game, rawName: string, gem: Gem | undefined, rng: Rng, now: number): { seat: number; token: string } | { error: string } {
+export const seatLimit = (g: Game) => SEAT_LIMIT[g.size ?? 'small'];
+const fullMsg = (g: Game) => `This table is full (${seatLimit(g)} players).`;
+export const BIG_TABLE_PHONE = 'This is a big table for laptops and desktops. Open the link on a computer to join.';
+
+export function join(g: Game, rawName: string, gem: Gem | undefined, rng: Rng, now: number, wide = false): { seat: number; token: string } | { error: string } {
   if (g.phase === 'closed') return { error: 'This room has closed. Create a new room.' };
   if (g.phase !== 'lobby') return { error: 'This game has already started.' };
   g.lastActivity = now;
-  if (g.seats.length >= MAX_SEATS) return { error: 'This table is full (5 players).' };
+  if (g.seats.length >= seatLimit(g)) return { error: fullMsg(g) };
+  if (g.size === 'big' && !wide) return { error: BIG_TABLE_PHONE };
   const name = cleanName(g, rawName, `Player ${g.seats.length + 1}`);
   const used = new Set(g.seats.map(s => s.gem));
   const pick = gem && !used.has(gem) ? gem : GEMS.find(x => !used.has(x))!;
-  const seat: Seat = { id: randomId(rng, 8), token: randomId(rng), name, gem: pick, cards: [], connected: true, ready: false, misses: 0, bot: false };
+  const seat: Seat = { id: randomId(rng, 8), token: randomId(rng), name, gem: pick, cards: [], connected: true, ready: false, misses: 0, bot: false, wide };
   g.seats.push(seat);
   log(g, `${name} sat down.`, g.seats.length - 1);
   return { seat: g.seats.length - 1, token: seat.token };
@@ -223,7 +236,7 @@ function seatBot(g: Game, rng: Rng) {
   const names = new Set(g.seats.map(s => s.name.toLowerCase()));
   const used = new Set(g.seats.map(s => s.gem));
   const name = BOT_NAMES.find(x => !names.has(x.toLowerCase())) ?? cleanName(g, 'Bot', 'Bot');
-  g.seats.push({ id: randomId(rng, 8), token: randomId(rng), name, gem: GEMS.find(x => !used.has(x))!, cards: [], connected: false, ready: true, misses: 0, bot: true, robot: true });
+  g.seats.push({ id: randomId(rng, 8), token: randomId(rng), name, gem: GEMS.find(x => !used.has(x))!, cards: [], connected: false, ready: true, misses: 0, bot: true, robot: true, wide: true });
   log(g, `${name} joined the table.`, g.seats.length - 1);
 }
 
@@ -233,8 +246,9 @@ function deal(g: Game, now: number, rng: Rng) {
   for (const s of SUITS) for (const r of RANKS) all.push({ r, s });
   shuffleInPlace(all, rng);
   const plain = all.filter(c => !isPower(c));
+  const hand = handSize(g.seats.length);
   for (const seat of g.seats) {
-    seat.cards = plain.splice(0, HAND);
+    seat.cards = plain.splice(0, hand);
     seat.ready = seat.bot; // bots don't need time to memorise
     seat.misses = 0;
   }
@@ -249,7 +263,7 @@ function deal(g: Game, now: number, rng: Rng) {
   g.endReason = null;
   g.deadline = now + MEMO_SEC * 1000;
   g.fx.push({ k: 'deal' });
-  log(g, `Round ${g.round}: everyone has four cards. Remember them.`);
+  log(g, `Round ${g.round}: everyone has ${hand === 3 ? 'three' : 'four'} cards. Remember them.`);
   maybeStartPlay(g, now);
 }
 
@@ -349,9 +363,23 @@ function applyMove(g: Game, seat: number, m: Move, now: number, rng: Rng): strin
     case 'addBot':
       if (!host) return 'Only the host can add bots.';
       if (g.phase !== 'lobby') return 'Bots can only join before the game starts.';
-      if (g.seats.length >= MAX_SEATS) return 'This table is full (5 players).';
+      if (g.seats.length >= seatLimit(g)) return fullMsg(g);
       seatBot(g, rng);
       return null;
+    case 'size': {
+      // Up to 5 on any device, or a big table of up to 8 for laptops and desktops only.
+      if (!host) return 'Only the host can change the table size.';
+      if (g.phase !== 'lobby') return 'The table size is set before the game starts.';
+      if (m.size !== 'small' && m.size !== 'big') return 'Unknown table size.';
+      if (m.size === 'big') {
+        const phones = g.seats.filter(s => !s.wide).map(s => s.name);
+        if (phones.length) return `A big table needs everyone on a laptop or desktop. ${phones.join(' and ')} ${phones.length > 1 ? 'are' : 'is'} on a phone.`;
+      } else if (g.seats.length > SEAT_LIMIT.small) {
+        return `Up to 5 can sit at a normal table. Remove ${g.seats.length - SEAT_LIMIT.small} first.`;
+      }
+      g.size = m.size;
+      return null;
+    }
     case 'renameBot': {
       if (!host) return 'Only the host can rename bots.';
       const bot = g.seats[m.seat];
@@ -414,7 +442,7 @@ function applyMove(g: Game, seat: number, m: Move, now: number, rng: Rng): strin
     case 'arrange': {
       if (g.phase !== 'memorize' || me.ready) return 'You can only rearrange while memorising.';
       const { a, b } = m;
-      if (![a, b].every(x => Number.isInteger(x) && x >= 0 && x < HAND)) return 'Pick two of your cards.';
+      if (![a, b].every(x => Number.isInteger(x) && x >= 0 && x < me.cards.length)) return 'Pick two of your cards.';
       [me.cards[a], me.cards[b]] = [me.cards[b], me.cards[a]];
       return null;
     }
@@ -457,7 +485,7 @@ function turnMove(g: Game, m: Move, now: number, rng: Rng): string | null {
     }
     case 'place': {
       if (g.step !== 'choose' || !g.drawn) return 'Draw a card first.';
-      if (!Number.isInteger(m.i) || m.i < 0 || m.i >= HAND) return 'Pick one of your cards.';
+      if (!Number.isInteger(m.i) || m.i < 0 || m.i >= me.cards.length) return 'Pick one of your cards.';
       const old = me.cards[m.i];
       me.cards[m.i] = g.drawn;
       g.discard.push(old);
@@ -475,7 +503,7 @@ function turnMove(g: Game, m: Move, now: number, rng: Rng): string | null {
       return null;
     case 'swap7': {
       if (g.step !== 'p7') return 'That needs a 7.';
-      if (!Number.isInteger(m.mine) || m.mine < 0 || m.mine >= HAND || !otherSeat(g, m.seat) || !Number.isInteger(m.i) || m.i < 0 || m.i >= HAND) return 'Pick one of your cards and one of another player’s.';
+      if (!Number.isInteger(m.mine) || m.mine < 0 || m.mine >= me.cards.length || !otherSeat(g, m.seat) || !Number.isInteger(m.i) || m.i < 0 || m.i >= g.seats[m.seat].cards.length) return 'Pick one of your cards and one of another player’s.';
       const them = g.seats[m.seat];
       [me.cards[m.mine], them.cards[m.i]] = [them.cards[m.i], me.cards[m.mine]];
       g.discard.push(g.drawn!);
@@ -589,7 +617,7 @@ function botAct(g: Game, now: number, rng: Rng) {
       return;
     }
     case 'p7':
-      turnMove(g, { t: 'swap7', mine: highest(), seat: pickOther(), i: Math.floor(rng() * HAND) }, now, rng);
+      { const seat = pickOther(); turnMove(g, { t: 'swap7', mine: highest(), seat, i: Math.floor(rng() * g.seats[seat].cards.length) }, now, rng); }
       return;
     case 'pQ':
       turnMove(g, { t: 'shuffleQ', seat: pickOther() }, now, rng);
@@ -610,6 +638,7 @@ export type SeatView = {
   id: string; name: string; gem: Gem; connected: boolean; bot: boolean; ready: boolean;
   kicked: boolean; // removed by the host; a bot is finishing their cards
   robot: boolean; // a bot the host added, not a person
+  wide: boolean; // on a laptop or desktop
   cards: (Card | null)[]; // null = face down to you
   total: number | null; // only at the end
 };
@@ -617,6 +646,8 @@ export type View = {
   phase: Game['phase'];
   you: number | null; // your seat, or null when watching
   host: number;
+  size: TableSize;
+  limit: number; // how many can sit at this table
   seats: SeatView[];
   deckCount: number;
   discardTop: Card | null;
@@ -643,13 +674,13 @@ export function viewFor(g: Game, you: number | null): View {
     const peeking = g.phase === 'play' && g.peek !== null && you === g.cur && g.peek.target === i;
     const show = end || mineWhileMemorising || peeking;
     return {
-      id: s.id, name: s.name, gem: s.gem, connected: s.connected, bot: s.bot, ready: s.ready, kicked: !!s.kicked, robot: !!s.robot,
+      id: s.id, name: s.name, gem: s.gem, connected: s.connected, bot: s.bot, ready: s.ready, kicked: !!s.kicked, robot: !!s.robot, wide: !!s.wide,
       cards: s.cards.map(c => (show ? { ...c } : null)),
       total: end ? total(s.cards) : null,
     };
   });
   return {
-    phase: g.phase, you, host: hostIndex(g), seats,
+    phase: g.phase, you, host: hostIndex(g), size: g.size ?? 'small', limit: seatLimit(g), seats,
     deckCount: g.deck.length,
     discardTop: g.discard.length ? { ...g.discard[g.discard.length - 1] } : null,
     cur: g.cur, step: g.step,
